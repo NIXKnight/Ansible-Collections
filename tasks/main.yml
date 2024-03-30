@@ -76,3 +76,14 @@
   ansible.builtin.systemd_service:
     name: "{{ DOCKER_COMPOSE_SERVICE_NAME }}"
     state: started
+
+- name: Restart Service(s)
+  ansible.builtin.systemd_service:
+    name: "{{ DOCKER_COMPOSE_SERVICE_NAME }}"
+    state: restarted
+  when: service_compose_file.changed
+
+- name: Ensure Service(s) is Enabled
+  ansible.builtin.systemd_service:
+    name: "{{ DOCKER_COMPOSE_SERVICE_NAME }}"
+    enabled: true
