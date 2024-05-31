@@ -12,6 +12,12 @@
   register: existing_compose_service_status
   when: compose_dir_check.stat.exists is defined and compose_dir_check.stat.exists
 
+- name: Set Docker Group ID
+  shell: "getent group docker | cut -d: -f3"
+  register: docker_gid
+  changed_when: false
+  when: DOCKER_COMPOSE_SERVICE_SET_GROUP_ID
+
 - name: Create Service Docker Compose Directory
   ansible.builtin.file:
     path: "{{ DOCKER_COMPOSE_SERVICE_COMPOSE_PATH }}"
