@@ -41,7 +41,7 @@
   ansible.builtin.systemd_service:
     name: "{{ DOCKER_COMPOSE_SERVICE_NAME }}"
     state: stopped
-  when: compose_dir_check.stat.exists is defined and existing_compose_service_status.any_container_running
+  when: compose_dir_check.stat.exists is defined and compose_dir_check.stat.exists and existing_compose_service_status is defined and existing_compose_service_status.any_container_running | default(false)
 
 - name: Create/Update Service Docker Compose File
   ansible.builtin.template:
@@ -63,6 +63,7 @@
     owner: "{{ item.owner }}"
     group: "{{ item.group }}"
   with_items: "{{ DOCKER_COMPOSE_SERVICE_CONFIG_FILES }}"
+  register: service_config_files
   when: DOCKER_COMPOSE_SERVICE_CONFIG_FILES is defined and DOCKER_COMPOSE_SERVICE_CONFIG_FILES | length > 0
 
 - name: Pull New Container Images
@@ -82,12 +83,13 @@
   ansible.builtin.systemd_service:
     name: "{{ DOCKER_COMPOSE_SERVICE_NAME }}"
     state: started
+  register: service_start
 
 - name: Restart Service(s)
   ansible.builtin.systemd_service:
     name: "{{ DOCKER_COMPOSE_SERVICE_NAME }}"
     state: restarted
-  when: service_compose_file.changed
+  when: (service_compose_file.changed or service_config_files.changed) and (not service_start.changed)
 
 - name: Ensure Service(s) is Enabled
   ansible.builtin.systemd_service:
