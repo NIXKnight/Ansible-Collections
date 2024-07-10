@@ -25,6 +25,13 @@
     recurse: true
   when: (compose_dir_check.stat.isdir is not defined) and (DOCKER_COMPOSE_SERVICE_COMPOSE_PATH is defined and DOCKER_COMPOSE_SERVICE_COMPOSE_PATH | length > 0)
 
+- name: Create Service Docker Compose Additional Directories
+  ansible.builtin.file:
+    path: "{{ DOCKER_COMPOSE_SERVICE_COMPOSE_PATH }}"
+    state: directory
+    recurse: true
+  with_items: "{{ DOCKER_COMPOSE_SERVICE_ADDITIONAL_PATHS }}"
+
 - name: Create Service Configuration Directory
   ansible.builtin.file:
     path: "{{ DOCKER_COMPOSE_SERVICE_CONFIG_PATH }}"
