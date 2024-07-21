@@ -90,12 +90,14 @@
   ansible.builtin.systemd_service:
     name: "{{ DOCKER_COMPOSE_SERVICE_NAME }}"
     state: started
+    daemon_reload: true
   register: service_start
 
 - name: Restart Service(s)
   ansible.builtin.systemd_service:
     name: "{{ DOCKER_COMPOSE_SERVICE_NAME }}"
     state: restarted
+    daemon_reload: true
   when: (service_compose_file.changed or service_config_files.changed) and (not service_start.changed)
 
 - name: Ensure Service(s) is Enabled
