@@ -1,15 +1,22 @@
 ---
 # tasks file for Ansible-Docker-Compose-Service
+- name: Write Docker Compose Service Helper Script
+  ansible.builtin.copy:
+    src: "files/usr/local/bin/docker-compose-service-helper.sh"
+    dest: "/usr/local/bin/docker-compose-service-helper.sh"
+    mode: 500
+
 - name: Check if Docker Compose File Exists
   ansible.builtin.stat:
     path: "{{ DOCKER_COMPOSE_SERVICE_COMPOSE_PATH }}/docker-compose.yml"
   register: compose_dir_check
 
-- name: Check Current Status of Docker Compose Service
-  docker_compose_info:
-    path: "{{ DOCKER_COMPOSE_SERVICE_COMPOSE_PATH }}/docker-compose.yml"
-    project_name: "{{ DOCKER_COMPOSE_SERVICE_NAME }}"
-  register: existing_compose_service_status
+- name: Check for Running Containers
+  ansible.builtin.shell: "/usr/local/bin/docker-compose-service-helper.sh --check-running-containers {{ DOCKER_COMPOSE_SERVICE_NAME }}"
+  args:
+    chdir: "{{ DOCKER_COMPOSE_SERVICE_COMPOSE_PATH }}"
+    executable: "/bin/bash"
+  register: check_running_containers
   when: compose_dir_check.stat.exists is defined and compose_dir_check.stat.exists
 
 - name: Set Docker Group ID
@@ -45,10 +52,11 @@
   register: docker_image_management
 
 - name: Stop Existing Service
-  ansible.builtin.systemd_service:
-    name: "{{ DOCKER_COMPOSE_SERVICE_NAME }}"
-    state: stopped
-  when: compose_dir_check.stat.exists is defined and compose_dir_check.stat.exists and existing_compose_service_status is defined and existing_compose_service_status.any_container_running | default(false)
+  ansible.builtin.shell: "/usr/local/bin/docker-compose-service-helper.sh --stop-running-containers {{ DOCKER_COMPOSE_SERVICE_NAME }}"
+  args:
+    chdir: "{{ DOCKER_COMPOSE_SERVICE_COMPOSE_PATH }}"
+    executable: "/bin/bash"
+  when: (compose_dir_check.stat.exists is defined and compose_dir_check.stat.exists) and (check_running_containers is defined and (check_running_containers.stdout | from_json).running_containers | length > 0)
 
 - name: Create/Update Service Docker Compose File
   ansible.builtin.template:
@@ -104,3 +112,8 @@
   ansible.builtin.systemd_service:
     name: "{{ DOCKER_COMPOSE_SERVICE_NAME }}"
     enabled: true
+
+- name: Remove Docker Compose Service Helper Script
+  ansible.builtin.file:
+    path: "/usr/local/bin/docker-compose-service-helper.sh"
+    state: absent
