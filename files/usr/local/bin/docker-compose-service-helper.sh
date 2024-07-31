@@ -57,6 +57,7 @@ function check_running_containers() {
   # Generate final JSON output
   local FINAL_JSON=$(jq -n --argjson containers_list "$CONTAINERS_LIST_JSON" '{"running_containers": $containers_list}')
   echo -e "${FINAL_JSON}"
+  exit 0
 }
 
 # Function to stop running containers for a specific project
@@ -71,6 +72,7 @@ function stop_running_containers() {
 
   # Stop the containers
   docker compose -p "$PROJECT_NAME" down
+  exit 0
 }
 
 # Function to get the image ID for a specific image name

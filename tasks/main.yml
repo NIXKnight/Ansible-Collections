@@ -1,5 +1,13 @@
 ---
 # tasks file for Ansible-Docker-Compose-Service
+- name: Set Docker Group ID
+  ansible.builtin.shell: "getent group docker | cut -d: -f3"
+  args:
+    executable: "/bin/bash"
+  register: docker_gid
+  changed_when: false
+  when: DOCKER_COMPOSE_SERVICE_SET_GROUP_ID
+
 - name: Write Docker Compose Service Helper Script
   ansible.builtin.copy:
     src: "files/usr/local/bin/docker-compose-service-helper.sh"
@@ -18,12 +26,6 @@
     executable: "/bin/bash"
   register: check_running_containers
   when: compose_dir_check.stat.exists is defined and compose_dir_check.stat.exists
-
-- name: Set Docker Group ID
-  shell: "getent group docker | cut -d: -f3"
-  register: docker_gid
-  changed_when: false
-  when: DOCKER_COMPOSE_SERVICE_SET_GROUP_ID
 
 - name: Create Service Docker Compose Directory
   ansible.builtin.file:
