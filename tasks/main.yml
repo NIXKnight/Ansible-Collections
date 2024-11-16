@@ -8,11 +8,10 @@
   changed_when: false
   when: DOCKER_COMPOSE_SERVICE_SET_GROUP_ID
 
-- name: Write Docker Compose Service Helper Script
-  ansible.builtin.copy:
-    src: "files/usr/local/bin/docker-compose-service-helper.sh"
-    dest: "/usr/local/bin/docker-compose-service-helper.sh"
-    mode: 500
+- name: Check if Service Systemd File Exists
+  ansible.builtin.stat:
+    path: "{{ DOCKER_COMPOSE_SERVICE_SYSTEMD_FILE }}"
+  register: service_systemd_file
 
 - name: Check if Docker Compose File Exists
   ansible.builtin.stat:
@@ -20,12 +19,13 @@
   register: docker_compose_file
 
 # This task uses docker_compose_service_check module from https://github.com/NIXKnight/Ansible-Collection.git
-- name: Check Docker Compose Service Status
-  docker_compose_service_check:
-    project_dir: "{{ DOCKER_COMPOSE_SERVICE_COMPOSE_PATH }}"
-    project_name: "{{ DOCKER_COMPOSE_SERVICE_NAME }}"
-  register: docker_compose_service_running_containers
-  when: docker_compose_file.stat.exists is defined and docker_compose_file.stat.exists
+# This task is not needed at the moment unless a situation arises where it might be needed again.
+# - name: Check Docker Compose Service Status
+#   docker_compose_service_check:
+#     project_directory: "{{ DOCKER_COMPOSE_SERVICE_COMPOSE_PATH }}"
+#     project_name: "{{ DOCKER_COMPOSE_SERVICE_NAME }}"
+#   register: docker_compose_service_running_containers
+#   when: docker_compose_file.stat.exists is defined and docker_compose_file.stat.exists
 
 - name: Create Service Docker Compose Directory
   ansible.builtin.file:
@@ -36,7 +36,7 @@
 
 - name: Create Service Docker Compose Additional Directories
   ansible.builtin.file:
-    path: "{{ DOCKER_COMPOSE_SERVICE_COMPOSE_PATH }}"
+    path: "{{ item }}"
     state: directory
     recurse: true
   with_items: "{{ DOCKER_COMPOSE_SERVICE_ADDITIONAL_PATHS }}"
@@ -58,25 +58,26 @@
   ansible.builtin.set_fact:
     container_images_to_pull: "{{ container_image_mgmt_plan.docker_images_to_pull }}"
     container_images_to_remove: "{{ container_image_mgmt_plan.docker_images_to_remove }}"
+    service_needs_to_stop: "{{ container_image_mgmt_plan.docker_images_to_remove | length > 0 }}"
 
-- name: Stop Existing Service
-  ansible.builtin.shell: "/usr/local/bin/docker-compose-service-helper.sh --stop-running-containers {{ DOCKER_COMPOSE_SERVICE_NAME }}"
-  args:
-    chdir: "{{ DOCKER_COMPOSE_SERVICE_COMPOSE_PATH }}"
-    executable: "/bin/bash"
-  when: (docker_compose_file.stat.exists is defined and docker_compose_file.stat.exists) and (docker_compose_service_running_containers is defined and docker_compose_service_running_containers.container_count | int > 0)
+- name: Stop Existing Service using Systemd
+  ansible.builtin.systemd_service:
+    name: "{{ DOCKER_COMPOSE_SERVICE_NAME }}"
+    state: stopped
+  register: service_systemd_stop
+  when: service_systemd_file.stat.exists and service_needs_to_stop
 
 - name: Create/Update Service Docker Compose File
   ansible.builtin.template:
     src: "templates/docker-compose.yml.j2"
     dest: "{{ DOCKER_COMPOSE_SERVICE_MANIFEST.dest }}"
-  register: service_compose_file
+  register: create_update_docker_compose_file
 
 - name: Create/Update Systemd Service File
   ansible.builtin.template:
     src: "templates/etc/systemd/system/docker-compose.service.j2"
     dest: "{{ DOCKER_COMPOSE_SERVICE_SYSTEMD_FILE }}"
-  register: service_systemd_file
+  register: create_update_systemd_service_file
 
 - name: Create/Update Service Configuration File(s)
   ansible.builtin.template:
@@ -86,7 +87,7 @@
     owner: "{{ item.owner }}"
     group: "{{ item.group }}"
   with_items: "{{ DOCKER_COMPOSE_SERVICE_CONFIG_FILES }}"
-  register: service_config_files
+  register: create_update_service_config_files
   when: DOCKER_COMPOSE_SERVICE_CONFIG_FILES is defined and DOCKER_COMPOSE_SERVICE_CONFIG_FILES | length > 0
 
 - name: Pull New Container Images
@@ -102,28 +103,40 @@
     name: "{{ item }}"
     state: absent
   with_items: "{{ container_images_to_remove }}"
-  when: container_images_to_remove | length > 0
+  when: service_needs_to_stop
 
-- name: Start Service(s)
+- name: Set Service State
+  ansible.builtin.set_fact:
+    service_state: >-
+      {{
+        'restarted' if (
+          service_systemd_file.stat.exists and
+          (
+            (create_update_docker_compose_file is defined and create_update_docker_compose_file.changed) or
+            (create_update_systemd_service_file is defined and create_update_systemd_service_file.changed) or
+            (create_update_service_config_files is defined and create_update_service_config_files.changed)
+          ) and
+          not service_needs_to_stop
+        )
+        else 'started' if (
+          not service_systemd_file.stat.exists or
+          service_needs_to_stop
+        )
+        else DOCKER_COMPOSE_SERVICE_SYSTEMD_DEFAULT_STATE
+      }}
+
+- name: Manage Systemd Service
   ansible.builtin.systemd_service:
     name: "{{ DOCKER_COMPOSE_SERVICE_NAME }}"
-    state: started
+    state: "{{ service_state }}"
     daemon_reload: true
-  register: service_start
-
-- name: Restart Service(s)
-  ansible.builtin.systemd_service:
-    name: "{{ DOCKER_COMPOSE_SERVICE_NAME }}"
-    state: restarted
-    daemon_reload: true
-  when: (service_compose_file.changed or service_config_files.changed) and (not service_start.changed)
 
 - name: Ensure Service(s) is Enabled
   ansible.builtin.systemd_service:
     name: "{{ DOCKER_COMPOSE_SERVICE_NAME }}"
     enabled: true
 
-- name: Remove Docker Compose Service Helper Script
-  ansible.builtin.file:
-    path: "/usr/local/bin/docker-compose-service-helper.sh"
-    state: absent
+# - name: Remove Docker Compose Service Helper Script
+#   ansible.builtin.file:
+#     path: "/usr/local/bin/docker-compose-service-helper.sh"
+#     state: absent
