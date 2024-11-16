@@ -1,0 +1,14 @@
+---
+namespace: "nixknight"
+name: "docker"
+version: "main"
+readme: "README.md"
+authors:
+    - "Saad Ali <engr.saadali786@gmail.com>"
+description: "Meta-collection containing all sub-collections"
+license:
+  - "MIT"
+tags:
+    - docker
+    - containers
+    - containerization
