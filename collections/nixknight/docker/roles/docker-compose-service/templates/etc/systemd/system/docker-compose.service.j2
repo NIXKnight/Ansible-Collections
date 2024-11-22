@@ -1,0 +1,17 @@
+[Unit]
+Description={{ DOCKER_COMPOSE_SERVICE_SYSTEMD_DESCRIPTION }}
+Requires={{ DOCKER_COMPOSE_SERVICE_SYSTEMD_REQUIRES }}
+After={{ DOCKER_COMPOSE_SERVICE_SYSTEMD_AFTER }}
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory={{ DOCKER_COMPOSE_SERVICE_COMPOSE_PATH }}
+{% if DOCKER_COMPOSE_SERVICE_SET_GROUP_ID %}Environment="DOCKER_GID={{ docker_gid.stdout }}"
+{% endif %}
+ExecStartPre=/usr/bin/docker compose -p {{ DOCKER_COMPOSE_SERVICE_NAME }} down
+ExecStart=/usr/bin/docker compose -p {{ DOCKER_COMPOSE_SERVICE_NAME }} up -d
+ExecStop=/usr/bin/docker compose -p {{ DOCKER_COMPOSE_SERVICE_NAME }} down
+
+[Install]
+WantedBy=multi-user.target
