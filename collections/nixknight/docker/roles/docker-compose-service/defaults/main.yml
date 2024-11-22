@@ -1,0 +1,56 @@
+---
+# defaults file for Ansible-Docker-Compose-Service
+DOCKER_COMPOSE_SERVICE_NAME: ""
+DOCKER_COMPOSE_SERVICE_SYSTEMD_DESCRIPTION: ""
+DOCKER_COMPOSE_SERVICE_SYSTEMD_REQUIRES: "docker.service"
+DOCKER_COMPOSE_SERVICE_SYSTEMD_AFTER: "docker.service"
+DOCKER_COMPOSE_SERVICE_SYSTEMD_FILE: "/etc/systemd/system/{{ DOCKER_COMPOSE_SERVICE_NAME }}.service"
+DOCKER_COMPOSE_SERVICE_SYSTEMD_DEFAULT_STATE: "started"
+DOCKER_COMPOSE_SERVICE_SET_GROUP_ID: false
+DOCKER_COMPOSE_SERVICE_IMAGES: {}
+  # Example
+  # postgresql:
+  #   name: "postgres"
+  #   tag: "16.2-bookworm"
+  # redis:
+  #   name: "redis"
+  #   tag: "7.2.4-bookworm"
+DOCKER_COMPOSE_SERVICE_COMPOSE_PATH: ""
+DOCKER_COMPOSE_SERVICE_CONFIG_PATH: ""
+DOCKER_COMPOSE_SERVICE_ADDITIONAL_PATHS: []
+DOCKER_COMPOSE_SERVICE_MANIFEST: {}
+  # Example
+  # dest: "{{ DOCKER_COMPOSE_SERVICE_COMPOSE_PATH }}/docker-compose.yml"
+  # content:
+  #   version: '3.9'
+  #   services:
+  #     postgres:
+  #       image: "{{ DOCKER_COMPOSE_SERVICE_IMAGES.postgresql.name }}"
+  #       environment:
+  #         POSTGRES_USER: root
+  #         POSTGRES_PASSWORD: knight
+  #       volumes:
+  #         - "postgres_data:/var/lib/postgresql/data"
+  #       network_mode: host
+  #       healthcheck:
+  #         test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_PASSWORD}"]
+  #         interval: 10s
+  #         timeout: 5s
+  #         retries: 5
+  #         start_period: 30s
+  #     redis:
+  #       image: "{{ DOCKER_COMPOSE_SERVICE_IMAGES.redis.name }}"
+  #       volumes:
+  #         - "redis_data:/data"
+  #       network_mode: host
+  #       healthcheck:
+  #         test: ["CMD-SHELL", "test $(redis-cli -h localhost PING) = PONG"]
+  #         interval: 10s
+  #         timeout: 5s
+  #         retries: 5
+  #         start_period: 5s
+  #   volumes:
+  #     postgres_data:
+  #       driver: local
+  #     redis_data:
+  #       driver: local

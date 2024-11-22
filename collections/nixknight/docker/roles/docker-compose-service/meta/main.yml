@@ -1,0 +1,13 @@
+dependencies: []
+galaxy_info:
+  author: Saad Ali
+  description: Setup a service with Docker Compose.
+  license: license (MIT)
+  min_ansible_version: 8.1
+  platforms:
+  - name: Debian
+    versions:
+      - bookworm
+  galaxy_tags:
+    - docker
+    - compose
