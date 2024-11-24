@@ -1,11 +1,11 @@
 ---
 namespace: "nixknight"
 name: "docker"
-version: "main"
+version: "0.1.0"
 readme: "README.md"
 authors:
     - "Saad Ali <engr.saadali786@gmail.com>"
-description: "Meta-collection containing all sub-collections"
+description: "Ansible collection for Docker container deployments and configuration"
 license:
   - "MIT"
 tags:
