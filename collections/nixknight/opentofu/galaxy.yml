@@ -1,0 +1,13 @@
+---
+namespace: "nixknight"
+name: "opentofu"
+version: "0.1.0"
+readme: "README.md"
+authors:
+    - "Saad Ali <engr.saadali786@gmail.com>"
+description: "Ansible collection for OpenTofu"
+license:
+  - "MIT"
+tags:
+    - opentofu
+    - terraform
