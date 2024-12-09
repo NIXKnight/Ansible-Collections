@@ -28,7 +28,6 @@ class LookupModule(LookupBase):
         except Exception as e:
             raise AnsibleError(f"Failed to extract metadata or encrypted data: {str(e)}")
 
-
     def _decrypt_opentofu_state(self, enc_passphrase, encryption_metadata, encrypted_data):
         key_provider_hash_function_map = {
             'sha512': hashes.SHA512,
@@ -58,17 +57,17 @@ class LookupModule(LookupBase):
         except Exception as e:
             raise ValueError(f"Decryption failed: {str(e)}")
 
+    def _decrypt_state_if_needed(self, state, enc_passphrase, enc_key_provider_name, output_name):
+        if enc_passphrase:
+            metadata, encrypted_data = self._extract_metadata_and_encrypted_data(state, enc_key_provider_name)
+            state = self._decrypt_opentofu_state(enc_passphrase, metadata, encrypted_data)
+        return self._exrtact_output(state, output_name)
 
     def _get_state_from_file(self, state_file_path, enc_passphrase, enc_key_provider_name, output_name):
         try:
             with open(state_file_path, 'r') as f:
                 state = json.load(f)
-
-            if enc_passphrase:
-                metadata, encrypted_data = self._extract_metadata_and_encrypted_data(state, enc_key_provider_name)
-                state = self._decrypt_opentofu_state(enc_passphrase, metadata, encrypted_data)
-
-            return self._exrtact_output(state, output_name)
+            return self._decrypt_state_if_needed(state, enc_passphrase, enc_key_provider_name, output_name)
         except FileNotFoundError:
             raise AnsibleError(f"State file not found: {state_file_path}")
         except json.JSONDecodeError:
@@ -77,7 +76,6 @@ class LookupModule(LookupBase):
             raise AnsibleError(f"Decryption failed: {str(e)}")
         except Exception as e:
             raise AnsibleError(f"Error processing state file: {str(e)}")
-
 
     def _get_state_from_pg_db_schema(self, pg_conn_string, pg_schema, enc_passphrase, enc_key_provider_name, output_name):
         try:
@@ -90,12 +88,7 @@ class LookupModule(LookupBase):
                 raise AnsibleError("State not found in database")
 
             state = json.loads(result['data'])
-
-            if enc_passphrase:
-                metadata, encrypted_data = self._extract_metadata_and_encrypted_data(state, enc_key_provider_name)
-                state = self._decrypt_opentofu_state(enc_passphrase, metadata, encrypted_data)
-
-            return self._exrtact_output(state, output_name)
+            return self._decrypt_state_if_needed(state, enc_passphrase, enc_key_provider_name, output_name)
         except psycopg2.Error as e:
             raise AnsibleError(f"Database error: {str(e)}")
         except ValueError as e:
