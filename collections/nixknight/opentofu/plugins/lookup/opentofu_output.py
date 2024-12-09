@@ -29,14 +29,14 @@ class LookupModule(LookupBase):
             raise AnsibleError(f"Failed to extract metadata or encrypted data: {str(e)}")
 
     def _decrypt_opentofu_state(self, enc_passphrase, encryption_metadata, encrypted_data):
-        key_provider_hash_function_map = {
+        pbkdf2_hash_function_map = {
             'sha512': hashes.SHA512,
             'sha256': hashes.SHA256
         }
 
         pbkdf2_metadata_salt = base64.b64decode(encryption_metadata['salt'])
         pbkdf2_metadata_iterations = encryption_metadata['iterations']
-        pbkdf2_metadata_algorithm = key_provider_hash_function_map[encryption_metadata['hash_function']]
+        pbkdf2_metadata_algorithm = pbkdf2_hash_function_map[encryption_metadata['hash_function']]
         pbkdf2_metadata_length = encryption_metadata['key_length']
 
         pbkdf2_deriver = PBKDF2HMAC(
