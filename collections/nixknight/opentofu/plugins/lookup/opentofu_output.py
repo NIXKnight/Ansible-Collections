@@ -9,7 +9,7 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 class LookupModule(LookupBase):
-    def _exrtact_output(self, opentofu_state, output_name):
+    def _extract_output(self, opentofu_state, output_name):
         if 'outputs' not in opentofu_state:
             raise AnsibleError("No outputs found in state")
 
@@ -61,7 +61,7 @@ class LookupModule(LookupBase):
         if enc_passphrase:
             metadata, encrypted_data = self._extract_metadata_and_encrypted_data(state, enc_key_provider_name)
             state = self._decrypt_opentofu_state(enc_passphrase, metadata, encrypted_data)
-        return self._exrtact_output(state, output_name)
+        return self._extract_output(state, output_name)
 
     def _get_state_from_file(self, state_file_path, enc_passphrase, enc_key_provider_name, output_name):
         try:
