@@ -9,6 +9,7 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 class LookupModule(LookupBase):
+    # Extracts an output value from the OpenTofu state
     def _extract_output(self, opentofu_state, output_name):
         if 'outputs' not in opentofu_state:
             raise AnsibleError("No outputs found in state")
@@ -18,6 +19,7 @@ class LookupModule(LookupBase):
 
         return [opentofu_state['outputs'][output_name]['value']]
 
+    # Extracts metadata and encrypted data from the encrypted state
     def _extract_metadata_and_encrypted_data(self, encrypted_state, enc_key_provider_name):
         try:
             b64_decoded_metadata = base64.b64decode(encrypted_state['meta'][f'key_provider.pbkdf2.{enc_key_provider_name}'])
@@ -28,6 +30,7 @@ class LookupModule(LookupBase):
         except Exception as e:
             raise AnsibleError(f"Failed to extract metadata or encrypted data: {str(e)}")
 
+    # Decrypt OpenTofu state using the provided passphrase and metadata
     def _decrypt_opentofu_state(self, enc_passphrase, encryption_metadata, encrypted_data):
         pbkdf2_hash_function_map = {
             'sha512': hashes.SHA512,
@@ -57,12 +60,14 @@ class LookupModule(LookupBase):
         except Exception as e:
             raise ValueError(f"Decryption failed: {str(e)}")
 
+    # Decrypt if necessary and retrieve the output
     def _decrypt_state_if_needed(self, state, enc_passphrase, enc_key_provider_name, output_name):
         if enc_passphrase:
             metadata, encrypted_data = self._extract_metadata_and_encrypted_data(state, enc_key_provider_name)
             state = self._decrypt_opentofu_state(enc_passphrase, metadata, encrypted_data)
         return self._extract_output(state, output_name)
 
+    # Read the state from a file and handle decryption if required
     def _get_state_from_file(self, state_file_path, enc_passphrase, enc_key_provider_name, output_name):
         try:
             with open(state_file_path, 'r') as f:
@@ -77,6 +82,7 @@ class LookupModule(LookupBase):
         except Exception as e:
             raise AnsibleError(f"Error processing state file: {str(e)}")
 
+    # Read the state from a PostgreSQL database and handle decryption if required
     def _get_state_from_pg_db_schema(self, pg_conn_string, pg_schema, enc_passphrase, enc_key_provider_name, output_name):
         try:
             conn = psycopg2.connect(pg_conn_string)
@@ -99,6 +105,7 @@ class LookupModule(LookupBase):
             if 'conn' in locals():
                 conn.close()
 
+    # Main entry point for the lookup plugin
     def run(self, terms, variables=None, **kwargs):
         output_name = terms[0]
         state_file_path = kwargs.get('state_file_path')
