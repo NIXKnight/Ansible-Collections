@@ -79,16 +79,27 @@
     dest: "{{ DOCKER_COMPOSE_SERVICE_SYSTEMD_FILE }}"
   register: create_update_systemd_service_file
 
-- name: Create/Update Service Configuration File(s)
+- name: Render Service Template(s)
   ansible.builtin.template:
     src: "{{ item.src }}"
     dest: "{{ item.dest }}"
     mode: "{{ item.mode }}"
     owner: "{{ item.owner }}"
     group: "{{ item.group }}"
-  with_items: "{{ DOCKER_COMPOSE_SERVICE_CONFIG_FILES }}"
-  register: create_update_service_config_files
-  when: DOCKER_COMPOSE_SERVICE_CONFIG_FILES is defined and DOCKER_COMPOSE_SERVICE_CONFIG_FILES | length > 0
+  with_items: "{{ DOCKER_COMPOSE_SERVICE_TEMPLATES }}"
+  register: render_service_templates
+  when: DOCKER_COMPOSE_SERVICE_TEMPLATES is defined and DOCKER_COMPOSE_SERVICE_TEMPLATES | length > 0
+
+- name: Copy/Update Service File(s)
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "{{ item.mode }}"
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+  with_items: "{{ DOCKER_COMPOSE_SERVICE_FILES }}"
+  register: create_update_service_files
+  when: DOCKER_COMPOSE_SERVICE_FILES is defined and DOCKER_COMPOSE_SERVICE_FILES | length > 0
 
 - name: Pull New Container Images
   community.docker.docker_image:
@@ -114,7 +125,8 @@
           (
             (create_update_docker_compose_file is defined and create_update_docker_compose_file.changed) or
             (create_update_systemd_service_file is defined and create_update_systemd_service_file.changed) or
-            (create_update_service_config_files is defined and create_update_service_config_files.changed)
+            (render_service_templates is defined and render_service_templates.changed) or
+            (create_update_service_files is defined and create_update_service_files.changed)
           ) and
           not service_needs_to_stop
         )

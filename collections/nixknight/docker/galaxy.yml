@@ -1,7 +1,7 @@
 ---
 namespace: "nixknight"
 name: "docker"
-version: "0.1.0"
+version: "0.1.1"
 readme: "README.md"
 authors:
     - "Saad Ali <engr.saadali786@gmail.com>"
