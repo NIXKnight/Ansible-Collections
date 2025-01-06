@@ -1,0 +1,170 @@
+---
+# tasks file for Ansible-LinuxCommon
+- name: Change Host Name
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname_short }}"
+  when: LC_CHANGE_HOSTNAME
+
+- name: Replace Hosts File
+  ansible.builtin.template:
+    src: "templates/etc/hosts.j2"
+    dest: "/etc/hosts"
+  when: LC_CHANGE_HOSTNAME
+
+- name: Setup Official Package Repositories
+  ansible.builtin.template:
+    src: "templates/etc/apt/sources.list.d/{{ ansible_distribution }}.sources.j2"
+    dest: "/etc/apt/sources.list.d/{{ ansible_distribution | lower }}.sources"
+  when: LC_CHANGES_APT_DEFAULT_SOURCES_LIST
+
+- name: Replace bashrc
+  ansible.builtin.copy:
+    src: "files/etc/bash.bashrc"
+    dest: "/etc/bash.bashrc"
+  when: LC_MODIFY_SYSTEM_SHELL_ENV
+
+- name: Replace Skeleton profile
+  ansible.builtin.copy:
+    src: "files/root/.profile"
+    dest: "/etc/skel/.profile"
+    owner: "root"
+    group: "root"
+  when: LC_MODIFY_SKEL
+
+- name: Replace root profile
+  ansible.builtin.copy:
+    src: "files/root/.profile"
+    dest: "/root/.profile"
+    owner: "root"
+    group: "root"
+  when: LC_MODIFY_ROOT_SHELL_ENV
+
+- name: Replace User profile
+  ansible.builtin.copy:
+    src: "files/home/user/.profile"
+    dest: "/home/{{ ansible_user_id }}/.profile"
+    owner: "{{ ansible_user_id }}"
+    group: "{{ ansible_user_id }}"
+  when: LC_MODIFY_USER_SHELL_ENV
+
+- name: Setup Official Package Repositories
+  ansible.builtin.template:
+    src: "templates/etc/apt/{{ ansible_distribution }}.sources.list.j2"
+    dest: "/etc/apt/sources.list"
+  when: LC_CHANGES_APT_DEFAULT_SOURCES_LIST
+
+- name: Setup 3rd Party Package Repositories
+  ansible.builtin.template:
+    src: "templates/etc/apt/sources.list.d/3rd_party.list.j2"
+    dest: "/etc/apt/sources.list.d/{{ item.NAME }}.list"
+  with_items: "{{ LC_THIRD_PARTY_REPOS }}"
+  when: LC_SETUP_THIRD_PARTY_REPOS
+
+- name: Add 3rd Party Repository Keys
+  ansible.builtin.get_url:
+    url: "{{ item.APT_KEY_URL }}"
+    dest: "{{ item.APT_KEY_LOCAL_PATH }}"
+  with_items: "{{ LC_THIRD_PARTY_REPOS }}"
+  when: LC_SETUP_THIRD_PARTY_REPOS
+
+- name: Install Updates
+  ansible.builtin.apt:
+    upgrade: dist
+    update_cache: yes
+
+- name: Remove Exim
+  ansible.builtin.apt:
+    name: "{{ lc_exim_packages }}"
+    state: absent
+    purge: yes
+  when: LC_REMOVE_EXIM
+
+- name: Set debconf Values for Packages
+  ansible.builtin.debconf:
+    name: "{{ item.name }}"
+    question: "{{ debconf_item.question }}"
+    value: "{{ debconf_item.value }}"
+    vtype: "{{ debconf_item.vtype }}"
+  with_items: "{{ LC_PACKAGES_DEBCONF }}"
+  vars:
+    debconf_item: "{{ item.debconf_values }}"
+  when: item.debconf_values is defined and item.debconf_values | length > 0
+
+- name: Install Packages
+  ansible.builtin.apt:
+    pkg: "{{ lc_basic_packages + LC_EXTRA_PACKAGES + (LC_PACKAGES_DEBCONF | map(attribute='name') | list) }}"
+    state: present
+    update_cache: yes
+  when: LC_INSTALL_PACKAGES
+
+- name: Install sudo
+  ansible.builtin.apt:
+    name: "sudo"
+    state: present
+    update_cache: yes
+  when: LC_SETUP_SUDO
+
+- name: Configure sudo Group Login Without Password
+  ansible.builtin.template:
+    src: "templates/etc/sudoers.d/95-sudo-group.j2"
+    dest: "/etc/sudoers.d/95-sudo-group"
+  when: LC_SETUP_SUDO
+
+- name: Add User {{ ansible_user_id }} to sudo Group
+  ansible.builtin.user:
+    name: '{{ ansible_user_id }}'
+    groups: "sudo"
+    append: yes
+  when: LC_SETUP_SUDO
+
+- name: Configure vim Editor
+  ansible.builtin.copy:
+    src: "files/etc/vim/vimrc.local"
+    dest: "/etc/vim/vimrc.local"
+
+- name: Modify Kernel Parameters
+  ansible.builtin.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: "{{ item.state }}"
+    reload: yes
+  with_items: "{{ LC_KERNEL_PARAMETERS }}"
+  when: LC_SET_KERNEL_PARAMETERS
+
+- name: Modify Cloud-Init Configuration to Preserve Hostname
+  ansible.builtin.copy:
+    src: "files/etc/cloud/cloud.cfg.d/99_preserve_hostname.cfg"
+    dest: "/etc/cloud/cloud.cfg.d/99_preserve_hostname.cfg"
+  when: LC_CLOUD_INIT_PRESERVE_HOSTNAME
+
+- name: Modify Cloud-Init Configuration to not Manage /etc/hosts
+  ansible.builtin.copy:
+    src: "files/etc/cloud/cloud.cfg.d/99_manage_etc_hosts.cfg"
+    dest: "/etc/cloud/cloud.cfg.d/99_manage_etc_hosts.cfg"
+  when: LC_CLOUD_INIT_PRESERVE_HOSTNAME
+
+- name: Modify Cloud-Init Configuration to not Manage /etc/apt/sources.list
+  ansible.builtin.copy:
+    src: "files/etc/cloud/cloud.cfg.d/99_manage_etc_hosts.cfg"
+    dest: "/etc/cloud/cloud.cfg.d/99_manage_etc_hosts.cfg"
+  when: LC_CLOUD_INIT_PRESERVE_SOURCES_LIST
+
+- name: Reboot
+  ansible.builtin.shell: sleep 2 && shutdown -r now "Rebooting..."
+  async: 1
+  poll: 0
+  ignore_errors: True
+  when: LC_REBOOT
+
+- name: Wait for Server to Reboot
+  become: False
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: "{{ LC_SSH_PORT }}"
+    state: started
+    search_regex: OpenSSH
+    delay: 10
+    timeout: "{{ LC_REBOOT_TIMEOUT }}"
+  vars:
+    ansible_connection: local
+  when: LC_REBOOT

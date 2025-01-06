@@ -1,0 +1,14 @@
+dependencies: []
+galaxy_info:
+  author: Saad Ali
+  description: Configuring shell environment and installing some very basic utilities on a new Linux system.
+  license: license (MIT)
+  min_ansible_version: 2.4
+  platforms:
+  - name: Debian
+    versions:
+      - buster
+      - bullseye
+      - bookworm
+  galaxy_tags:
+    - server

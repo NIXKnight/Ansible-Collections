@@ -1,0 +1,20 @@
+lc_basic_packages:
+  - apt-transport-https
+  - htop
+  - iotop
+  - iftop
+  - ncdu
+  - ntp
+  - ntpdate
+  - curl
+  - wget
+  - bash-completion
+  - vim
+  - mtr-tiny
+  - git
+  - unzip
+lc_exim_packages:
+  - exim4
+  - exim4-base
+  - exim4-config
+  - exim4-daemon-light
