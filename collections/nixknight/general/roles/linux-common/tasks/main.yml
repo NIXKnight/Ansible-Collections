@@ -11,59 +11,29 @@
     dest: "/etc/hosts"
   when: LC_CHANGE_HOSTNAME
 
+- name: Remove Sources List File with Old Format
+  ansible.builtin.file:
+    path: "/etc/apt/sources.list"
+    state: absent
+  when: LC_CHANGE_APT_DEFAULT_SOURCES_LIST
+
 - name: Setup Official Package Repositories
   ansible.builtin.template:
     src: "templates/etc/apt/sources.list.d/{{ ansible_distribution }}.sources.j2"
     dest: "/etc/apt/sources.list.d/{{ ansible_distribution | lower }}.sources"
-  when: LC_CHANGES_APT_DEFAULT_SOURCES_LIST
-
-- name: Replace bashrc
-  ansible.builtin.copy:
-    src: "files/etc/bash.bashrc"
-    dest: "/etc/bash.bashrc"
-  when: LC_MODIFY_SYSTEM_SHELL_ENV
-
-- name: Replace Skeleton profile
-  ansible.builtin.copy:
-    src: "files/root/.profile"
-    dest: "/etc/skel/.profile"
-    owner: "root"
-    group: "root"
-  when: LC_MODIFY_SKEL
-
-- name: Replace root profile
-  ansible.builtin.copy:
-    src: "files/root/.profile"
-    dest: "/root/.profile"
-    owner: "root"
-    group: "root"
-  when: LC_MODIFY_ROOT_SHELL_ENV
-
-- name: Replace User profile
-  ansible.builtin.copy:
-    src: "files/home/user/.profile"
-    dest: "/home/{{ ansible_user_id }}/.profile"
-    owner: "{{ ansible_user_id }}"
-    group: "{{ ansible_user_id }}"
-  when: LC_MODIFY_USER_SHELL_ENV
-
-- name: Setup Official Package Repositories
-  ansible.builtin.template:
-    src: "templates/etc/apt/{{ ansible_distribution }}.sources.list.j2"
-    dest: "/etc/apt/sources.list"
-  when: LC_CHANGES_APT_DEFAULT_SOURCES_LIST
-
-- name: Setup 3rd Party Package Repositories
-  ansible.builtin.template:
-    src: "templates/etc/apt/sources.list.d/3rd_party.list.j2"
-    dest: "/etc/apt/sources.list.d/{{ item.NAME }}.list"
-  with_items: "{{ LC_THIRD_PARTY_REPOS }}"
-  when: LC_SETUP_THIRD_PARTY_REPOS
+  when: LC_CHANGE_APT_DEFAULT_SOURCES_LIST
 
 - name: Add 3rd Party Repository Keys
   ansible.builtin.get_url:
     url: "{{ item.APT_KEY_URL }}"
     dest: "{{ item.APT_KEY_LOCAL_PATH }}"
+  with_items: "{{ LC_THIRD_PARTY_REPOS }}"
+  when: LC_SETUP_THIRD_PARTY_REPOS
+
+- name: Setup 3rd Party Package Repositories
+  ansible.builtin.template:
+    src: "templates/etc/apt/sources.list.d/3rd_party.sources.j2"
+    dest: "/etc/apt/sources.list.d/{{ item.NAME }}.sources"
   with_items: "{{ LC_THIRD_PARTY_REPOS }}"
   when: LC_SETUP_THIRD_PARTY_REPOS
 
@@ -79,6 +49,10 @@
     purge: yes
   when: LC_REMOVE_EXIM
 
+- name: Gather Installed Package Facts
+  ansible.builtin.package_facts:
+    manager: apt
+
 - name: Set debconf Values for Packages
   ansible.builtin.debconf:
     name: "{{ item.name }}"
@@ -89,10 +63,17 @@
   vars:
     debconf_item: "{{ item.debconf_values }}"
   when: item.debconf_values is defined and item.debconf_values | length > 0
+  register: debconf_setup
+
+- name: Reconfigure Installed Packages Per debconf Changes
+  ansible.builtin.command:
+    cmd: "dpkg-reconfigure -f noninteractive {{ item }}"
+  loop: "{{ LC_PACKAGES_DEBCONF | map(attribute='name') | unique | list }}"
+  when: debconf_setup.changed and item in ansible_facts.packages
 
 - name: Install Packages
   ansible.builtin.apt:
-    pkg: "{{ lc_basic_packages + LC_EXTRA_PACKAGES + (LC_PACKAGES_DEBCONF | map(attribute='name') | list) }}"
+    pkg: "{{ lc_basic_packages + LC_EXTRA_PACKAGES + (LC_PACKAGES_DEBCONF | map(attribute='name') | unique | list) }}"
     state: present
     update_cache: yes
   when: LC_INSTALL_PACKAGES
@@ -117,10 +98,45 @@
     append: yes
   when: LC_SETUP_SUDO
 
-- name: Configure vim Editor
+- name: Create Additional Directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    recurse: true
+  with_items: "{{ LC_ADDITIONAL_PATHS }}"
+
+- name: Render Misc Template File(s)
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "{{ item.mode }}"
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+  with_items: "{{ LC_MISC_TEMPLATES }}"
+  when: LC_MISC_TEMPLATES is defined and LC_MISC_TEMPLATES | length > 0
+
+- name: Copy/Update Misc File(s)
   ansible.builtin.copy:
-    src: "files/etc/vim/vimrc.local"
-    dest: "/etc/vim/vimrc.local"
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "{{ item.mode }}"
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+  with_items: "{{ LC_MISC_FILES }}"
+  when: LC_MISC_FILES is defined and LC_MISC_FILES | length > 0
+
+- name: Perform Systemd Service(s) Start/Restart Actions
+  ansible.builtin.systemd_service:
+    name: "{{ item.service_name }}"
+    state: "{{ item.state }}"
+    daemon_reload: "{{ item.daemon_reload | bool }}"
+  with_items: "{{ LC_SYSTEMD_SERVICES_ACTIONS }}"
+
+- name: Enable Certain Systemd Service(s)
+  ansible.builtin.systemd_service:
+    name: "{{ item.service_name }}"
+    enabled: "{{ item.enabled | bool }}"
+  with_items: "{{ LC_SYSTEMD_SERVICES_ACTIONS }}"
 
 - name: Modify Kernel Parameters
   ansible.builtin.sysctl:
@@ -128,26 +144,9 @@
     value: "{{ item.value }}"
     state: "{{ item.state }}"
     reload: yes
+  ignore_errors: true # We want to ignore errors if we are running in a chroot environment
   with_items: "{{ LC_KERNEL_PARAMETERS }}"
   when: LC_SET_KERNEL_PARAMETERS
-
-- name: Modify Cloud-Init Configuration to Preserve Hostname
-  ansible.builtin.copy:
-    src: "files/etc/cloud/cloud.cfg.d/99_preserve_hostname.cfg"
-    dest: "/etc/cloud/cloud.cfg.d/99_preserve_hostname.cfg"
-  when: LC_CLOUD_INIT_PRESERVE_HOSTNAME
-
-- name: Modify Cloud-Init Configuration to not Manage /etc/hosts
-  ansible.builtin.copy:
-    src: "files/etc/cloud/cloud.cfg.d/99_manage_etc_hosts.cfg"
-    dest: "/etc/cloud/cloud.cfg.d/99_manage_etc_hosts.cfg"
-  when: LC_CLOUD_INIT_PRESERVE_HOSTNAME
-
-- name: Modify Cloud-Init Configuration to not Manage /etc/apt/sources.list
-  ansible.builtin.copy:
-    src: "files/etc/cloud/cloud.cfg.d/99_manage_etc_hosts.cfg"
-    dest: "/etc/cloud/cloud.cfg.d/99_manage_etc_hosts.cfg"
-  when: LC_CLOUD_INIT_PRESERVE_SOURCES_LIST
 
 - name: Reboot
   ansible.builtin.shell: sleep 2 && shutdown -r now "Rebooting..."
