@@ -73,17 +73,10 @@
 
 - name: Install Packages
   ansible.builtin.apt:
-    pkg: "{{ lc_basic_packages + LC_EXTRA_PACKAGES + (LC_PACKAGES_DEBCONF | map(attribute='name') | unique | list) }}"
+    pkg: "{{ lc_basic_packages + LC_EXTRA_PACKAGES + (LC_PACKAGES_DEBCONF | map(attribute='name') | unique | list) + ([ 'sudo' ] if LC_SETUP_SUDO | bool else [])}}"
     state: present
     update_cache: yes
   when: LC_INSTALL_PACKAGES
-
-- name: Install sudo
-  ansible.builtin.apt:
-    name: "sudo"
-    state: present
-    update_cache: yes
-  when: LC_SETUP_SUDO
 
 - name: Configure sudo Group Login Without Password
   ansible.builtin.template:
