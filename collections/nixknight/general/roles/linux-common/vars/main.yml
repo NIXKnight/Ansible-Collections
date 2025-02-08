@@ -4,8 +4,6 @@ lc_basic_packages:
   - iotop
   - iftop
   - ncdu
-  - ntp
-  - ntpdate
   - curl
   - wget
   - bash-completion

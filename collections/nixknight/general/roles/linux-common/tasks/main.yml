@@ -49,31 +49,9 @@
     purge: yes
   when: LC_REMOVE_EXIM
 
-- name: Gather Installed Package Facts
-  ansible.builtin.package_facts:
-    manager: apt
-
-- name: Set debconf Values for Packages
-  ansible.builtin.debconf:
-    name: "{{ item.name }}"
-    question: "{{ debconf_item.question }}"
-    value: "{{ debconf_item.value }}"
-    vtype: "{{ debconf_item.vtype }}"
-  with_items: "{{ LC_PACKAGES_DEBCONF }}"
-  vars:
-    debconf_item: "{{ item.debconf_values }}"
-  when: item.debconf_values is defined and item.debconf_values | length > 0
-  register: debconf_setup
-
-- name: Reconfigure Installed Packages Per debconf Changes
-  ansible.builtin.command:
-    cmd: "dpkg-reconfigure -f noninteractive {{ item }}"
-  loop: "{{ LC_PACKAGES_DEBCONF | map(attribute='name') | unique | list }}"
-  when: debconf_setup.changed and item in ansible_facts.packages
-
 - name: Install Packages
   ansible.builtin.apt:
-    pkg: "{{ lc_basic_packages + LC_EXTRA_PACKAGES + (LC_PACKAGES_DEBCONF | map(attribute='name') | unique | list) + ([ 'sudo' ] if LC_SETUP_SUDO | bool else [])}}"
+    pkg: "{{ lc_basic_packages + LC_EXTRA_PACKAGES + ([ 'sudo' ] if LC_SETUP_SUDO | bool else [])}}"
     state: present
     update_cache: yes
   when: LC_INSTALL_PACKAGES
