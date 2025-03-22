@@ -1,0 +1,142 @@
+---
+# tasks file for Ansible-Docker-Compose-Service
+- name: Set Docker Group ID
+  ansible.builtin.shell: "getent group docker | cut -d: -f3"
+  args:
+    executable: "/bin/bash"
+  register: docker_gid
+  changed_when: false
+  when: DOCKER_COMPOSE_SERVICE_SET_GROUP_ID
+
+- name: Check if Service Systemd File Exists
+  ansible.builtin.stat:
+    path: "{{ DOCKER_COMPOSE_SERVICE_SYSTEMD_FILE }}"
+  register: service_systemd_file
+
+- name: Check if Docker Compose File Exists
+  ansible.builtin.stat:
+    path: "{{ DOCKER_COMPOSE_SERVICE_COMPOSE_PATH }}/docker-compose.yml"
+  register: docker_compose_file
+
+- name: Create Service Docker Compose Directory
+  ansible.builtin.file:
+    path: "{{ DOCKER_COMPOSE_SERVICE_COMPOSE_PATH }}"
+    state: directory
+    recurse: true
+  when: (docker_compose_file.stat.isdir is not defined) and (DOCKER_COMPOSE_SERVICE_COMPOSE_PATH is defined and DOCKER_COMPOSE_SERVICE_COMPOSE_PATH | length > 0)
+
+- name: Create Service Docker Compose Additional Directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    recurse: true
+  with_items: "{{ DOCKER_COMPOSE_SERVICE_ADDITIONAL_PATHS }}"
+
+- name: Create Service Configuration Directory
+  ansible.builtin.file:
+    path: "{{ DOCKER_COMPOSE_SERVICE_CONFIG_PATH }}"
+    state: directory
+    recurse: true
+  when: DOCKER_COMPOSE_SERVICE_CONFIG_PATH is defined and DOCKER_COMPOSE_SERVICE_CONFIG_PATH | length > 0
+
+# This task uses docker_image_mgmt_plan module from https://github.com/NIXKnight/Ansible-Collections.git
+- name: Create a Docker Container Image Management Plan
+  docker_image_mgmt_plan:
+    images: "{{ DOCKER_COMPOSE_SERVICE_IMAGES }}"
+  register: container_image_mgmt_plan
+
+- name: Set Vars according to the Image Management Plan
+  ansible.builtin.set_fact:
+    container_images_to_pull: "{{ container_image_mgmt_plan.docker_images_to_pull }}"
+    container_images_to_remove: "{{ container_image_mgmt_plan.docker_images_to_remove }}"
+    service_needs_to_stop: "{{ container_image_mgmt_plan.docker_images_to_remove | length > 0 }}"
+
+- name: Stop Existing Service using Systemd
+  ansible.builtin.systemd_service:
+    name: "{{ DOCKER_COMPOSE_SERVICE_NAME }}"
+    state: stopped
+  register: service_systemd_stop
+  when: service_systemd_file.stat.exists and service_needs_to_stop
+
+- name: Create/Update Service Docker Compose File
+  ansible.builtin.template:
+    src: "templates/docker-compose.yml.j2"
+    dest: "{{ DOCKER_COMPOSE_SERVICE_MANIFEST.dest }}"
+  register: create_update_docker_compose_file
+
+- name: Create/Update Systemd Service File
+  ansible.builtin.template:
+    src: "templates/etc/systemd/system/docker-compose.service.j2"
+    dest: "{{ DOCKER_COMPOSE_SERVICE_SYSTEMD_FILE }}"
+  register: create_update_systemd_service_file
+
+- name: Render Service Template(s)
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "{{ item.mode }}"
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+  with_items: "{{ DOCKER_COMPOSE_SERVICE_TEMPLATES }}"
+  register: render_service_templates
+  when: DOCKER_COMPOSE_SERVICE_TEMPLATES is defined and DOCKER_COMPOSE_SERVICE_TEMPLATES | length > 0
+
+- name: Copy/Update Service File(s)
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "{{ item.mode }}"
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+  with_items: "{{ DOCKER_COMPOSE_SERVICE_FILES }}"
+  register: create_update_service_files
+  when: DOCKER_COMPOSE_SERVICE_FILES is defined and DOCKER_COMPOSE_SERVICE_FILES | length > 0
+
+- name: Pull New Container Images
+  community.docker.docker_image:
+    name: "{{ item }}"
+    source: pull
+    state: present
+  with_items: "{{ container_images_to_pull }}"
+  when: container_images_to_pull | length > 0
+
+- name: Remove Old Container Images
+  community.docker.docker_image:
+    name: "{{ item }}"
+    state: absent
+  with_items: "{{ container_images_to_remove }}"
+  when: service_needs_to_stop
+
+- name: Set Service State
+  ansible.builtin.set_fact:
+    service_state: >-
+      {{
+        'restarted' if (
+          service_systemd_file.stat.exists and
+          (
+            (create_update_docker_compose_file is defined and create_update_docker_compose_file.changed) or
+            (create_update_systemd_service_file is defined and create_update_systemd_service_file.changed) or
+            (render_service_templates is defined and render_service_templates.changed) or
+            (create_update_service_files is defined and create_update_service_files.changed)
+          ) and
+          not service_needs_to_stop
+        )
+        else 'started' if (
+          not service_systemd_file.stat.exists or
+          service_needs_to_stop
+        )
+        else DOCKER_COMPOSE_SERVICE_SYSTEMD_DEFAULT_STATE
+      }}
+
+- name: Manage Systemd Service
+  ansible.builtin.systemd_service:
+    name: "{{ DOCKER_COMPOSE_SERVICE_NAME }}"
+    state: "{{ service_state }}"
+    daemon_reload: true
+
+- name: Ensure Service(s) is Enabled
+  ansible.builtin.systemd_service:
+    name: "{{ DOCKER_COMPOSE_SERVICE_NAME }}"
+    enabled: true
