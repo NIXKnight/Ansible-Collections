@@ -36,8 +36,10 @@
 
 - name: Create Service Docker Compose Additional Directories
   ansible.builtin.file:
-    path: "{{ item }}"
+    path: "{{ item.path }}"
     state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
     recurse: true
   with_items: "{{ DOCKER_COMPOSE_SERVICE_ADDITIONAL_PATHS }}"
 
