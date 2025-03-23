@@ -1,5 +1,9 @@
 ---
 # tasks file for Ansible-Docker-Compose-Service
 - name: Create/Update Service
-  include_tasks: create.yml
+  include_tasks: create_update_service.yml
   when: not DOCKER_COMPOSE_SERVICE_DELETE
+
+- name: Delete/Remove Service
+  include_tasks: delete_service.yml
+  when: DOCKER_COMPOSE_SERVICE_DELETE
