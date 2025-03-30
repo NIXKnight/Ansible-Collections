@@ -25,7 +25,7 @@ def get_existing_docker_images(client, image_name):
         # Handle Docker API errors and raise a descriptive exception
         raise Exception(f"Docker API error while getting images: {str(e)}")
 
-def get_docker_image_management_plan(module, docker_images_config):
+def get_docker_image_management_plan(module, docker_images_config, purge=False):
     """
     Determine which images need to be pulled and which should be removed.
     Uses Docker API to check image existence.
@@ -33,6 +33,7 @@ def get_docker_image_management_plan(module, docker_images_config):
     Args:
         module: Ansible module instance
         docker_images_config: Dictionary of service image configurations
+        purge: Boolean indicating whether to purge unused images
     """
     try:
         # Initialize Docker client using environment configuration
@@ -62,6 +63,11 @@ def get_docker_image_management_plan(module, docker_images_config):
                 # If not found, mark for pulling and remove any other tags
                 docker_images_to_pull.append(required_image)
                 docker_images_to_remove.extend(existing_images)
+            elif purge:
+                # Remove all tags for this image if purge is enabled
+                docker_images_to_remove.extend([
+                    img for img in existing_images
+                ])
             else:
                 # Required tag exists; remove any other tags for this image
                 docker_images_to_remove.extend([
@@ -85,7 +91,8 @@ def get_docker_image_management_plan(module, docker_images_config):
 def main():
     # Define input arguments for the Ansible module
     module_args = dict(
-        images=dict(type='dict', required=True)
+        images=dict(type='dict', required=True),
+        purge=dict(type='bool', default=False)
     )
 
     # Initialize result dictionary to store results and status
@@ -107,7 +114,8 @@ def main():
         if not module.check_mode:
             docker_images_to_pull, docker_images_to_remove = get_docker_image_management_plan(
                 module,
-                module.params['images']
+                module.params['images'],
+                module.params['purge']
             )
 
             # Update result dictionary with the analysis outcomes
