@@ -1,8 +1,12 @@
 ---
+- name: Create Container Image Management Plan
+  ansible.builtin.include_tasks:
+    file: image_mgmt_plan.yml
+
 - name: Stop and Disable Service
   ansible.builtin.systemd:
     name: "{{ DOCKER_COMPOSE_SERVICE_NAME }}"
-    state: stopped
+    state: "stopped"
     enabled: false
 
 - name: Remove Systemd Service File
@@ -14,19 +18,20 @@
   ansible.builtin.file:
     path: "{{ DOCKER_COMPOSE_SERVICE_COMPOSE_PATH }}"
     state: absent
-    recurse: true
 
 - name: Remove service configuration directory
   ansible.builtin.file:
     path: "{{ DOCKER_COMPOSE_SERVICE_CONFIG_PATH }}"
     state: absent
-    recurse: true
   when: DOCKER_COMPOSE_SERVICE_CONFIG_PATH is defined and DOCKER_COMPOSE_SERVICE_CONFIG_PATH | length > 0
 
 - name: Remove additional directories for the service
   ansible.builtin.file:
     path: "{{ item.path }}"
     state: absent
-    recurse: true
   with_items: "{{ DOCKER_COMPOSE_SERVICE_ADDITIONAL_PATHS }}"
   when: DOCKER_COMPOSE_SERVICE_ADDITIONAL_PATHS is defined and DOCKER_COMPOSE_SERVICE_ADDITIONAL_PATHS | length > 0
+
+- name: Remove Container Images
+  ansible.builtin.include_tasks:
+    file: Pull_remove_images.yml

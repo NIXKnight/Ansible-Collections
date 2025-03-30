@@ -1,0 +1,14 @@
+---
+# tasks file for Ansible-Docker-Compose-Service
+# This task uses docker_image_mgmt_plan module from https://github.com/NIXKnight/Ansible-Collections.git
+- name: Create a Docker Container Image Management Plan
+  docker_image_mgmt_plan:
+    images: "{{ DOCKER_COMPOSE_SERVICE_IMAGES }}"
+    purge: "{{ DOCKER_COMPOSE_SERVICE_REMOVE }}"
+  register: container_image_mgmt_plan
+
+- name: Set Vars according to the Image Management Plan
+  ansible.builtin.set_fact:
+    container_images_to_pull: "{{ container_image_mgmt_plan.docker_images_to_pull }}"
+    container_images_to_remove: "{{ container_image_mgmt_plan.docker_images_to_remove }}"
+    service_needs_to_stop: "{{ container_image_mgmt_plan.docker_images_to_remove | length > 0 }}"

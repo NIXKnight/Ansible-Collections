@@ -41,17 +41,9 @@
     recurse: true
   when: DOCKER_COMPOSE_SERVICE_CONFIG_PATH is defined and DOCKER_COMPOSE_SERVICE_CONFIG_PATH | length > 0
 
-# This task uses docker_image_mgmt_plan module from https://github.com/NIXKnight/Ansible-Collections.git
-- name: Create a Docker Container Image Management Plan
-  docker_image_mgmt_plan:
-    images: "{{ DOCKER_COMPOSE_SERVICE_IMAGES }}"
-  register: container_image_mgmt_plan
-
-- name: Set Vars according to the Image Management Plan
-  ansible.builtin.set_fact:
-    container_images_to_pull: "{{ container_image_mgmt_plan.docker_images_to_pull }}"
-    container_images_to_remove: "{{ container_image_mgmt_plan.docker_images_to_remove }}"
-    service_needs_to_stop: "{{ container_image_mgmt_plan.docker_images_to_remove | length > 0 }}"
+- name: Create Container Image Management Plan
+  ansible.builtin.include_tasks:
+    file: image_mgmt_plan.yml
 
 - name: Stop Existing Service using Systemd
   ansible.builtin.systemd_service:
@@ -94,20 +86,9 @@
   register: create_update_service_files
   when: DOCKER_COMPOSE_SERVICE_FILES is defined and DOCKER_COMPOSE_SERVICE_FILES | length > 0
 
-- name: Pull New Container Images
-  community.docker.docker_image:
-    name: "{{ item }}"
-    source: pull
-    state: present
-  with_items: "{{ container_images_to_pull }}"
-  when: container_images_to_pull | length > 0
-
-- name: Remove Old Container Images
-  community.docker.docker_image:
-    name: "{{ item }}"
-    state: absent
-  with_items: "{{ container_images_to_remove }}"
-  when: service_needs_to_stop
+- name: Pull/Remove Container Images
+  ansible.builtin.include_tasks:
+    file: Pull_remove_images.yml
 
 - name: Set Service State
   ansible.builtin.set_fact:

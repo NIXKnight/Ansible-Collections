@@ -56,4 +56,4 @@ DOCKER_COMPOSE_SERVICE_MANIFEST: {}
   #       driver: local
   #     redis_data:
   #       driver: local
-DOCKER_COMPOSE_SERVICE_DELETE: false
+DOCKER_COMPOSE_SERVICE_REMOVE: false
