@@ -7,6 +7,8 @@ import base64
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+import boto3
+from botocore.exceptions import ClientError
 
 class LookupModule(LookupBase):
     # Extracts an output value from the OpenTofu state
@@ -82,6 +84,31 @@ class LookupModule(LookupBase):
         except Exception as e:
             raise AnsibleError(f"Error processing state file: {str(e)}")
 
+    # Read the state from AWS S3 bucket and handle decryption if required
+    def _get_state_from_s3(self, s3_bucket, bucket_path, aws_region, aws_profile, enc_passphrase, enc_key_provider_name, output_name):
+        try:
+            # Initialize S3 client with optional profile
+            if aws_profile:
+                session = boto3.Session(profile_name=aws_profile, region_name=aws_region)
+                s3_client = session.client('s3')
+            else:
+                s3_client = boto3.client('s3', region_name=aws_region)
+
+            # Get the state file from S3
+            response = s3_client.get_object(Bucket=s3_bucket, Key=bucket_path)
+            state_content = response['Body'].read().decode('utf-8')
+            state = json.loads(state_content)
+
+            return self._decrypt_state_if_needed(state, enc_passphrase, enc_key_provider_name, output_name)
+        except ClientError as e:
+            raise AnsibleError(f"AWS S3 error: {str(e)}")
+        except json.JSONDecodeError:
+            raise AnsibleError("Invalid JSON in S3 state file")
+        except ValueError as e:
+            raise AnsibleError(f"Decryption failed: {str(e)}")
+        except Exception as e:
+            raise AnsibleError(f"Error processing state from S3: {str(e)}")
+
     # Read the state from a PostgreSQL database and handle decryption if required
     def _get_state_from_pg_db_schema(self, pg_conn_string, pg_schema, enc_passphrase, enc_key_provider_name, output_name):
         try:
@@ -111,18 +138,26 @@ class LookupModule(LookupBase):
         state_file_path = kwargs.get('state_file_path')
         pg_conn_string = kwargs.get('pg_conn_string')
         pg_schema = kwargs.get('pg_schema', 'terraform_remote_state')
+        s3_bucket = kwargs.get('s3_bucket')
+        bucket_path = kwargs.get('bucket_path')
+        aws_region = kwargs.get('aws_region', 'us-east-1')
+        aws_profile = kwargs.get('aws_profile')
         enc_passphrase = kwargs.get('enc_passphrase', None)
         enc_key_provider_name = kwargs.get('enc_key_provider_name', None)
 
-        if not (state_file_path or pg_conn_string):
-            raise AnsibleError("Either file path or database connection string required")
+        # Check that we have at least one source specified
+        if not any([state_file_path, pg_conn_string, (s3_bucket and bucket_path)]):
+            raise AnsibleError("Either file path, database connection string, or S3 bucket and key required")
 
+        # Check if we need to decrypt and have all required parameters
         if enc_passphrase and not enc_key_provider_name:
             raise AnsibleError("If 'enc_passphrase' is provided, 'enc_key_provider_name' must also be provided")
 
         try:
             if state_file_path:
                 return self._get_state_from_file(state_file_path, enc_passphrase, enc_key_provider_name, output_name)
+            elif s3_bucket and bucket_path:
+                return self._get_state_from_s3(s3_bucket, bucket_path, aws_region, aws_profile, enc_passphrase, enc_key_provider_name, output_name)
             else:
                 return self._get_state_from_pg_db_schema(pg_conn_string, pg_schema, enc_passphrase, enc_key_provider_name, output_name)
         except Exception as e:
