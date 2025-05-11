@@ -34,4 +34,4 @@
 
 - name: Remove Container Images
   ansible.builtin.include_tasks:
-    file: Pull_remove_images.yml
+    file: pull_remove_images.yml
