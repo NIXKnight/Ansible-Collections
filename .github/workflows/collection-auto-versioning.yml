@@ -1,0 +1,108 @@
+name: Collection Auto-Versioning
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - 'collections/nixknight/*/**'
+
+jobs:
+  auto-version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install yq
+        uses: mikefarah/yq@v4
+
+      - name: Identify changed collection
+        id: get_collection
+        run: |
+          # Get a list of all files changed in the PR
+          files=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.number }}/files" | \
+            jq -r '.[].filename')
+
+          # Extract the collection name from the file paths
+          collection_name=$(echo "$files" | grep -oP 'collections/nixknight/\\K[^/]+' | sort -u)
+
+          # Check if more than one collection was changed
+          if [ $(echo "$collection_name" | wc -l) -gt 1 ]; then
+            echo "More than one collection changed. Please create separate PRs for each collection."
+            exit 1
+          fi
+
+          echo "collection_name=$collection_name" >> $GITHUB_OUTPUT
+          echo "galaxy_file=collections/nixknight/$collection_name/galaxy.yml" >> $GITHUB_OUTPUT
+
+      - name: Get latest tag version
+        id: get_version
+        run: |
+          COLLECTION_NAME="${{ steps.get_collection.outputs.collection_name }}"
+          # Get all tags for the specific collection and find the latest version
+          LATEST_TAG=$(git tag -l "$COLLECTION_NAME-*" | sort -V | tail -n1)
+          if [ -z "$LATEST_TAG" ]; then
+            # If no tags exist for this collection, start with 0.1.0
+            CURRENT_VERSION="0.1.0"
+          else
+            # Extract version from tag (collection-0.1.3 -> 0.1.3)
+            CURRENT_VERSION=$(echo "$LATEST_TAG" | sed "s/$COLLECTION_NAME-//")
+          fi
+
+          # Increment patch version (0.1.3 -> 0.1.4)
+          MAJOR=$(echo "$CURRENT_VERSION" | cut -d. -f1)
+          MINOR=$(echo "$CURRENT_VERSION" | cut -d. -f2)
+          PATCH=$(echo "$CURRENT_VERSION" | cut -d. -f3)
+          NEW_PATCH=$((PATCH + 1))
+          NEW_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
+
+          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+          echo "Current version: $CURRENT_VERSION"
+          echo "New version: $NEW_VERSION"
+
+      - name: Check if version update needed
+        id: check_update
+        run: |
+          GALAXY_FILE="${{ steps.get_collection.outputs.galaxy_file }}"
+          CURRENT_GALAXY_VERSION=$(yq '.version' $GALAXY_FILE)
+          NEW_VERSION="${{ steps.get_version.outputs.new_version }}"
+
+          echo "Galaxy version: $CURRENT_GALAXY_VERSION"
+          echo "Calculated version: $NEW_VERSION"
+
+          if [ "$CURRENT_GALAXY_VERSION" != "$NEW_VERSION" ]; then
+            echo "needs_update=true" >> $GITHUB_OUTPUT
+          else
+            echo "needs_update=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update galaxy.yml version
+        if: steps.check_update.outputs.needs_update == 'true'
+        run: |
+          GALAXY_FILE="${{ steps.get_collection.outputs.galaxy_file }}"
+          NEW_VERSION="${{ steps.get_version.outputs.new_version }}"
+          yq -i ".version = \"$NEW_VERSION\"" $GALAXY_FILE
+
+          echo "Updated $GALAXY_FILE with version: $NEW_VERSION"
+          yq '.version' $GALAXY_FILE
+
+      - name: Commit version update
+        if: steps.check_update.outputs.needs_update == 'true'
+        run: |
+          GALAXY_FILE="${{ steps.get_collection.outputs.galaxy_file }}"
+          COLLECTION_NAME="${{ steps.get_collection.outputs.collection_name }}"
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+          git add $GALAXY_FILE
+          git commit -m "chore: bump $COLLECTION_NAME collection version to ${{ steps.get_version.outputs.new_version }} [skip ci]"
+          git push

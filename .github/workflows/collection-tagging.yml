@@ -1,0 +1,83 @@
+name: Collection Tagging
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'collections/nixknight/*/**'
+
+jobs:
+  create-tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install yq
+        uses: mikefarah/yq@v4
+
+      - name: Identify changed collection
+        id: get_collection
+        run: |
+          # Get a list of all files changed in the push
+          files=$(git diff-tree --no-commit-id --name-only -r ${{ github.sha }})
+
+          # Extract the collection name from the file paths
+          collection_name=$(echo "$files" | grep -oP 'collections/nixknight/\K[^/]+' | sort -u)
+
+          # Check if more than one collection was changed
+          if [ $(echo "$collection_name" | wc -l) -gt 1 ]; then
+            echo "More than one collection changed. This should not happen on main branch."
+            exit 1
+          fi
+
+          echo "collection_name=$collection_name" >> $GITHUB_OUTPUT
+          echo "galaxy_file=collections/nixknight/$collection_name/galaxy.yml" >> $GITHUB_OUTPUT
+
+      - name: Get version from galaxy.yml
+        id: get_version
+        run: |
+          GALAXY_FILE="${{ steps.get_collection.outputs.galaxy_file }}"
+          COLLECTION_NAME="${{ steps.get_collection.outputs.collection_name }}"
+          VERSION=$(yq '.version' $GALAXY_FILE)
+          TAG_NAME="$COLLECTION_NAME-$VERSION"
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+
+          echo "Version from $GALAXY_FILE: $VERSION"
+          echo "Tag to create: $TAG_NAME"
+
+      - name: Check if tag already exists
+        id: check_tag
+        run: |
+          TAG_NAME="${{ steps.get_version.outputs.tag_name }}"
+
+          if git tag -l | grep -q "^$TAG_NAME$"; then
+            echo "tag_exists=true" >> $GITHUB_OUTPUT
+            echo "Tag $TAG_NAME already exists"
+          else
+            echo "tag_exists=false" >> $GITHUB_OUTPUT
+            echo "Tag $TAG_NAME does not exist, will create"
+          fi
+
+      - name: Create and push tag
+        if: steps.check_tag.outputs.tag_exists == 'false'
+        run: |
+          TAG_NAME="${{ steps.get_version.outputs.tag_name }}"
+          VERSION="${{ steps.get_version.outputs.version }}"
+          COLLECTION_NAME="${{ steps.get_collection.outputs.collection_name }}"
+
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+          git tag -a "$TAG_NAME" -m "Release $COLLECTION_NAME collection version $VERSION"
+          git push origin "$TAG_NAME"
+
+          echo "Created and pushed tag: $TAG_NAME"
