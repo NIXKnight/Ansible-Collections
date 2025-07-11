@@ -1,14 +1,14 @@
 ---
 namespace: "nixknight"
 name: "docker"
-version: "0.1.1"
+version: "0.1.3"
 readme: "README.md"
 authors:
-    - "Saad Ali <engr.saadali786@gmail.com>"
+  - "Saad Ali <engr.saadali786@gmail.com>"
 description: "Ansible collection for Docker container deployments and configuration"
 license:
   - "MIT"
 tags:
-    - docker
-    - containers
-    - containerization
+  - docker
+  - containers
+  - containerization
