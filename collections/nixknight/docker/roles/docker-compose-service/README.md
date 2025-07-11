@@ -6,9 +6,7 @@ An Ansible role for deploying and managing Docker Compose services with systemd 
 
 - [Requirements](#requirements)
 - [Role Variables](#role-variables)
-- [Dependencies](#dependencies)
 - [Installation](#installation)
-- [Features](#features)
 - [Examples](#examples)
 - [License](#license)
 - [Author](#author)
@@ -16,9 +14,9 @@ An Ansible role for deploying and managing Docker Compose services with systemd 
 ## **Requirements**
 
 - Docker installed and running on target hosts
-- systemd service manager
+- Target host runs systemd
 - Ansible 2.9 or higher
-- Python docker library on target hosts (for image management)
+- Python docker library on target hosts
 
 ## **Role Variables**
 
@@ -300,6 +298,7 @@ Here is an example of how to use this role to set up a Django service with a cus
       DOCKER_COMPOSE_SERVICE_TEMPLATES: "{{ DJANGO_APP_SERVICE_TEMPLATES }}"
       DOCKER_COMPOSE_SERVICE_ADDITIONAL_PATHS: "{{ DJANGO_APP_SERVICE_ADDITIONAL_PATHS }}"
       DOCKER_COMPOSE_SERVICE_FILES: "{{ DJANGO_APP_SERVICE_FILES }}"
+```
 
 ## **License**
 
