@@ -1,5 +1,56 @@
-# **Ansible-Docker-Compose-Service**
-Ansible-Docker-Compose-Service is an Ansible role for setting up a service using Docker Compose.
+# **docker-compose-service**
+
+An Ansible role for deploying and managing Docker Compose services with systemd integration. This role automates the deployment of containerized services, creates systemd service files for service management, and handles Docker image lifecycle management.
+
+## **Table of Contents**
+
+- [Requirements](#requirements)
+- [Role Variables](#role-variables)
+- [Dependencies](#dependencies)
+- [Installation](#installation)
+- [Features](#features)
+- [Examples](#examples)
+- [License](#license)
+- [Author](#author)
+
+## **Requirements**
+
+- Docker installed and running on target hosts
+- systemd service manager
+- Ansible 2.9 or higher
+- Python docker library on target hosts (for image management)
+
+## **Role Variables**
+
+### **Required Variables**
+
+| Variable | Description | Type |
+|----------|-------------|------|
+| `DOCKER_COMPOSE_SERVICE_NAME` | Name of the service for systemd | string |
+| `DOCKER_COMPOSE_SERVICE_COMPOSE_PATH` | Path where docker-compose.yml will be stored | string |
+| `DOCKER_COMPOSE_SERVICE_MANIFEST` | Docker Compose configuration content | dict |
+
+### **Optional Variables**
+
+| Variable | Default | Description | Type |
+|----------|---------|-------------|------|
+| `DOCKER_COMPOSE_SERVICE_SYSTEMD_DESCRIPTION` | `"{{ DOCKER_COMPOSE_SERVICE_NAME }} Service"` | Systemd service description | string |
+| `DOCKER_COMPOSE_SERVICE_SYSTEMD_REQUIRES` | `docker.service` | Systemd service dependencies | string |
+| `DOCKER_COMPOSE_SERVICE_SYSTEMD_AFTER` | `docker.service` | Systemd service ordering | string |
+| `DOCKER_COMPOSE_SERVICE_SYSTEMD_FILE` | `/etc/systemd/system/{{ DOCKER_COMPOSE_SERVICE_NAME }}.service` | Systemd service file path | string |
+| `DOCKER_COMPOSE_SERVICE_CONFIG_PATH` | `""` | Additional configuration directory path | string |
+| `DOCKER_COMPOSE_SERVICE_IMAGES` | `{}` | Docker images to manage with tags | dict |
+| `DOCKER_COMPOSE_SERVICE_FILES` | `[]` | Static files to copy to target | list |
+| `DOCKER_COMPOSE_SERVICE_TEMPLATES` | `[]` | Template files to render | list |
+| `DOCKER_COMPOSE_SERVICE_ADDITIONAL_PATHS` | `[]` | Additional directories to create | list |
+
+## **Installation**
+
+Install the collection containing this role:
+
+```bash
+ansible-galaxy collection install git+https://github.com/NIXKnight/Ansible-Collections.git#/collections/nixknight/docker,docker-0.1.3
+```
 
 ## **Examples**
 
@@ -20,7 +71,6 @@ Here is an example of how to use this role to set up a PostgreSQL service.
     DOCKER_COMPOSE_SERVICE_MANIFEST:
       dest: "{{ DOCKER_COMPOSE_SERVICE_COMPOSE_PATH }}/docker-compose.yml"
       content:
-        version: '3.9'
         services:
           postgres:
             image: "{{ DOCKER_COMPOSE_SERVICE_IMAGES.postgresql.name }}:{{ DOCKER_COMPOSE_SERVICE_IMAGES.postgresql.tag }}"
@@ -74,7 +124,6 @@ Here is an example of how to use this role to set up a Django service with a cus
     DOCKER_COMPOSE_SERVICE_MANIFEST:
       dest: "{{ DOCKER_COMPOSE_SERVICE_COMPOSE_PATH }}/docker-compose.yml"
       content:
-        version: '3.9'
         services:
           django:
             image: "{{ DOCKER_COMPOSE_SERVICE_IMAGES.django.name }}:{{ DOCKER_COMPOSE_SERVICE_IMAGES.django.tag }}"
@@ -135,7 +184,6 @@ Here is an example of how to use this role to set up a Django service with a cus
     POSTGRESQL_SERVICE_MANIFEST:
       dest: "{{ POSTGRESQL_SERVICE_COMPOSE_PATH }}/docker-compose.yml"
       content:
-        version: '3.9'
         services:
           postgres:
             image: "{{ POSTGRESQL_SERVICE_IMAGES.postgresql.name }}:{{ POSTGRESQL_SERVICE_IMAGES.postgresql.tag }}"
@@ -205,7 +253,6 @@ Here is an example of how to use this role to set up a Django service with a cus
     DJANGO_APP_SERVICE_MANIFEST:
       dest: "{{ DJANGO_APP_SERVICE_COMPOSE_PATH }}/docker-compose.yml"
       content:
-        version: '3.9'
         services:
           django:
             image: "{{ DJANGO_APP_SERVICE_IMAGES.django.name }}:{{ DJANGO_APP_SERVICE_IMAGES.django.tag }}"
