@@ -14,7 +14,7 @@ jobs:
       pull-requests: write
 
     steps:
-      - name: Checkout code
+      - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -23,7 +23,7 @@ jobs:
       - name: Install yq
         uses: mikefarah/yq@v4
 
-      - name: Identify changed collection
+      - name: Identify Changed Collection
         id: get_collection
         run: |
           # Get a list of all files changed in the PR using git diff, filtered to collection files only
@@ -44,7 +44,7 @@ jobs:
           echo "collection_name=$collection_name" >> $GITHUB_OUTPUT
           echo "galaxy_file=collections/nixknight/$collection_name/galaxy.yml" >> $GITHUB_OUTPUT
 
-      - name: Get latest tag version
+      - name: Calculate Latest Tag Version
         id: get_version
         run: |
           COLLECTION_NAME="${{ steps.get_collection.outputs.collection_name }}"
@@ -63,49 +63,49 @@ jobs:
           MINOR=$(echo "$CURRENT_VERSION" | cut -d. -f2)
           PATCH=$(echo "$CURRENT_VERSION" | cut -d. -f3)
           NEW_PATCH=$((PATCH + 1))
-          NEW_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
+          CALCULATED_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
 
           echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
-          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "calculated_version=$CALCULATED_VERSION" >> $GITHUB_OUTPUT
 
           echo "Current version: $CURRENT_VERSION"
-          echo "New version: $NEW_VERSION"
+          echo "Calculated version: $CALCULATED_VERSION"
 
-      - name: Check if version update needed
+      - name: Check if Version Update Required
         id: check_update
         run: |
           GALAXY_FILE="${{ steps.get_collection.outputs.galaxy_file }}"
           CURRENT_GALAXY_VERSION=$(yq '.version' $GALAXY_FILE)
-          NEW_VERSION="${{ steps.get_version.outputs.new_version }}"
+          CALCULATED_VERSION="${{ steps.get_version.outputs.calculated_version }}"
 
           echo "Galaxy version: $CURRENT_GALAXY_VERSION"
-          echo "Calculated version: $NEW_VERSION"
+          echo "Calculated version: $CALCULATED_VERSION"
 
-          if [ "$CURRENT_GALAXY_VERSION" != "$NEW_VERSION" ]; then
+          if [ "$CURRENT_GALAXY_VERSION" != "$CALCULATED_VERSION" ]; then
             echo "needs_update=true" >> $GITHUB_OUTPUT
           else
             echo "needs_update=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Update galaxy.yml version
+      - name: Update galaxy.yml Version
         if: steps.check_update.outputs.needs_update == 'true'
         run: |
           GALAXY_FILE="${{ steps.get_collection.outputs.galaxy_file }}"
-          NEW_VERSION="${{ steps.get_version.outputs.new_version }}"
-          yq -i ".version = \"$NEW_VERSION\"" $GALAXY_FILE
+          CALCULATED_VERSION="${{ steps.get_version.outputs.calculated_version }}"
+          yq -i ".version = \"$CALCULATED_VERSION\"" $GALAXY_FILE
 
-          echo "Updated $GALAXY_FILE with version: $NEW_VERSION"
+          echo "Updated $GALAXY_FILE with version: $CALCULATED_VERSION"
           yq '.version' $GALAXY_FILE
 
-      - name: Commit version update
+      - name: Commit Version Update
         if: steps.check_update.outputs.needs_update == 'true'
         run: |
           GALAXY_FILE="${{ steps.get_collection.outputs.galaxy_file }}"
           COLLECTION_NAME="${{ steps.get_collection.outputs.collection_name }}"
-          NEW_VERSION="${{ steps.get_version.outputs.new_version }}"
+          CALCULATED_VERSION="${{ steps.get_version.outputs.calculated_version }}"
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
 
           git add $GALAXY_FILE
-          git commit -m "chore: bump $COLLECTION_NAME collection version to $NEW_VERSION"
+          git commit -m "chore: bump $COLLECTION_NAME collection version to $CALCULATED_VERSION"
           git push origin HEAD:${{ github.head_ref }}
