@@ -21,7 +21,7 @@ jobs:
           ref: ${{ github.head_ref }}
 
       - name: Install yq
-        uses: mikefarah/yq@v4
+        uses: mikefarah/yq@v4.46.1
 
       - name: Identify Changed Collection
         id: get_collection
@@ -97,6 +97,17 @@ jobs:
           echo "Updated $GALAXY_FILE with version: $CALCULATED_VERSION"
           yq '.version' $GALAXY_FILE
 
+      - name: Update README.md Version
+        if: steps.check_update.outputs.needs_update == 'true'
+        run: |
+          COLLECTION_NAME="${{ steps.get_collection.outputs.collection_name }}"
+          CALCULATED_VERSION="${{ steps.get_version.outputs.calculated_version }}"
+
+          # Update the version in the README.md installation command
+          sed -i "s/${COLLECTION_NAME}-[0-9]\+\.[0-9]\+\.[0-9]\+/${COLLECTION_NAME}-${CALCULATED_VERSION}/g" README.md
+
+          echo "Updated README.md with version: $CALCULATED_VERSION for collection: $COLLECTION_NAME"
+
       - name: Commit Version Update
         if: steps.check_update.outputs.needs_update == 'true'
         run: |
@@ -106,6 +117,6 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
 
-          git add $GALAXY_FILE
+          git add $GALAXY_FILE README.md
           git commit -m "chore: bump $COLLECTION_NAME collection version to $CALCULATED_VERSION"
           git push origin HEAD:${{ github.head_ref }}
