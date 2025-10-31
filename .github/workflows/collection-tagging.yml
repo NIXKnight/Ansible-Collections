@@ -14,7 +14,7 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout code
+      - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -22,7 +22,7 @@ jobs:
       - name: Install yq
         uses: mikefarah/yq@v4
 
-      - name: Identify changed collection
+      - name: Identify Changed Collection
         id: get_collection
         run: |
           # Get a list of all files changed in the push
@@ -40,7 +40,7 @@ jobs:
           echo "collection_name=$collection_name" >> $GITHUB_OUTPUT
           echo "galaxy_file=collections/nixknight/$collection_name/galaxy.yml" >> $GITHUB_OUTPUT
 
-      - name: Get version from galaxy.yml
+      - name: Get Version from galaxy.yml
         id: get_version
         run: |
           GALAXY_FILE="${{ steps.get_collection.outputs.galaxy_file }}"
@@ -54,7 +54,7 @@ jobs:
           echo "Version from $GALAXY_FILE: $VERSION"
           echo "Tag to create: $TAG_NAME"
 
-      - name: Check if tag already exists
+      - name: Check for Tag Existence
         id: check_tag
         run: |
           TAG_NAME="${{ steps.get_version.outputs.tag_name }}"
@@ -67,7 +67,7 @@ jobs:
             echo "Tag $TAG_NAME does not exist, will create"
           fi
 
-      - name: Create and push tag
+      - name: Create Tag and Push
         if: steps.check_tag.outputs.tag_exists == 'false'
         run: |
           TAG_NAME="${{ steps.get_version.outputs.tag_name }}"
