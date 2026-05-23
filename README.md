@@ -16,7 +16,7 @@ Install individual collections from GitHub:
 
 ```bash
 # Docker collection
-ansible-galaxy collection install git+https://github.com/NIXKnight/Ansible-Collections.git#/collections/nixknight/docker,docker-0.1.4
+ansible-galaxy collection install git+https://github.com/NIXKnight/Ansible-Collections.git#/collections/nixknight/docker,docker-0.1.5
 
 # General collection
 ansible-galaxy collection install git+https://github.com/NIXKnight/Ansible-Collections.git#/collections/nixknight/general,general-0.1.0
