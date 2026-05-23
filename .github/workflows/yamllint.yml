@@ -1,0 +1,75 @@
+name: YAML Lint
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: yamllint-${{ github.event.pull_request.head.ref }}
+  cancel-in-progress: true
+
+jobs:
+  yamllint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0
+
+      - name: Install yamllint
+        env:
+          YAMLLINT_VERSION: "1.38.0"
+        run: |
+          set -euo pipefail
+          python3 -m pip install --user "yamllint==${YAMLLINT_VERSION}"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Identify Changed YAML Files
+        id: changed
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          files=$(git diff --name-only --diff-filter=ACMRT \
+            "origin/${BASE_REF}...HEAD" \
+            | grep -E '\.(yml|yaml)$' || true)
+          if [ -z "$files" ]; then
+            echo "No YAML/YML files changed; skipping lint."
+            echo "has_files=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Files to lint:"
+            echo "$files" | sed 's/^/  /'
+            echo "has_files=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "files<<EOF"
+              echo "$files"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run yamllint
+        if: steps.changed.outputs.has_files == 'true'
+        env:
+          YAML_FILES: ${{ steps.changed.outputs.files }}
+        run: |
+          set -euo pipefail
+          echo "$YAML_FILES" | xargs -d '\n' -r yamllint --config-file .yamllint
+
+      - name: Failure summary
+        if: failure()
+        run: |
+          {
+            echo "### YAML lint failed";
+            echo "- Run: ${{ github.run_id }}";
+            echo "- Trigger: ${{ github.event_name }}";
+            echo "- Ref: ${{ github.ref }}";
+          } >> "$GITHUB_STEP_SUMMARY"

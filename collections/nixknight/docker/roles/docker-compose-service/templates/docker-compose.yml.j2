@@ -1,2 +1,6 @@
 ---
+# WARNING: this file is rendered from DOCKER_COMPOSE_SERVICE_MANIFEST.content via
+# `to_nice_yaml`. Operators feeding untrusted values into the manifest MUST use
+# Ansible's `!unsafe` markers so the upstream Jinja resolver does not interpret
+# them as templates. See the role README, "Operational notes" section.
 {{ DOCKER_COMPOSE_SERVICE_MANIFEST.content | to_nice_yaml(indent=2, sort_keys=false) }}

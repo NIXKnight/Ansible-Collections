@@ -12,3 +12,5 @@ tags:
   - docker
   - containers
   - containerization
+dependencies:
+  "community.docker": ">=3.0.0"

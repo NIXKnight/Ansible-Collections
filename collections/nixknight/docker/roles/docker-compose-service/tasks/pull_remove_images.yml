@@ -1,10 +1,16 @@
 ---
+# R9: register `pull_container_images` so the restart logic in
+# create_update_service.yml can react to mutable-tag refreshes. `force_source`
+# ensures the pull executes when the planner schedules one (e.g. for the
+# force-refresh path).
 - name: Pull New Container Images
   community.docker.docker_image:
     name: "{{ item }}"
     source: pull
     state: present
+    force_source: true
   with_items: "{{ container_images_to_pull }}"
+  register: pull_container_images
   when: container_images_to_pull | length > 0
 
 - name: Remove Old Container Images
@@ -12,4 +18,3 @@
     name: "{{ item }}"
     state: absent
   with_items: "{{ container_images_to_remove }}"
-  when: service_needs_to_stop
