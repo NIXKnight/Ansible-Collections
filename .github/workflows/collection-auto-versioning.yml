@@ -6,47 +6,71 @@ on:
     paths:
       - 'collections/nixknight/*/**'
 
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: auto-version-${{ github.event.pull_request.head.ref }}
+  cancel-in-progress: false
+
 jobs:
   auto-version:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    if: github.actor != 'github-actions[bot]'
     permissions:
       contents: write
-      pull-requests: write
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
           fetch-depth: 0
           ref: ${{ github.head_ref }}
 
       - name: Install yq
-        uses: mikefarah/yq@v4.46.1
+        env:
+          YQ_VERSION: v4.46.1
+          YQ_SHA256: c0eb42f6fbf928f0413422967983dcdf9806cc4dedc9394edc60c0dfb4a98529
+        run: |
+          set -euo pipefail
+          sudo curl -fsSL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" -o /usr/local/bin/yq
+          echo "${YQ_SHA256}  /usr/local/bin/yq" | sha256sum -c -
+          sudo chmod +x /usr/local/bin/yq
 
       - name: Identify Changed Collection
         id: get_collection
         run: |
+          set -euo pipefail
           # Get a list of all files changed in the PR using git diff, filtered to collection files only
-          files=$(git diff --name-only origin/main...HEAD | grep '^collections/nixknight/')
+          files=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep '^collections/nixknight/' || true)
 
           # Extract the collection name from the file paths
-          collection_name=$(echo "$files" | grep -oP 'collections/nixknight/\K[^/]+' | sort -u)
+          collection_name=$(echo "$files" | grep -oP 'collections/nixknight/\K[^/]+' | sort -u || true)
+
+          # C1: Empty-check guard
+          [ -z "$collection_name" ] && { echo "::error::No collection files detected"; exit 1; }
 
           # Check if more than one collection was changed
           if [ $(echo "$collection_name" | wc -l) -gt 1 ]; then
-            echo "More than one collection changed. Please create separate PRs for each collection."
+            echo "::error::More than one collection changed. Please create separate PRs for each collection."
             exit 1
           fi
+
+          # S2: Character-set guard
+          [[ "$collection_name" =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "::error::Invalid collection name"; exit 1; }
 
           echo "Files: $files"
           echo "Collection Name: $collection_name"
 
-          echo "collection_name=$collection_name" >> $GITHUB_OUTPUT
-          echo "galaxy_file=collections/nixknight/$collection_name/galaxy.yml" >> $GITHUB_OUTPUT
+          echo "collection_name=$collection_name" >> "$GITHUB_OUTPUT"
+          echo "galaxy_file=collections/nixknight/$collection_name/galaxy.yml" >> "$GITHUB_OUTPUT"
 
       - name: Calculate Latest Tag Version
         id: get_version
         run: |
+          set -euo pipefail
           COLLECTION_NAME="${{ steps.get_collection.outputs.collection_name }}"
           # Get all tags for the specific collection and find the latest version
           LATEST_TAG=$(git tag -l "$COLLECTION_NAME-*" | sort -V | tail -n1)
@@ -62,11 +86,15 @@ jobs:
           MAJOR=$(echo "$CURRENT_VERSION" | cut -d. -f1)
           MINOR=$(echo "$CURRENT_VERSION" | cut -d. -f2)
           PATCH=$(echo "$CURRENT_VERSION" | cut -d. -f3)
+
+          # C5: Pre-arithmetic guard for non-numeric patch
+          [[ "$PATCH" =~ ^[0-9]+$ ]] || { echo "::error::Non-numeric patch: $PATCH"; exit 1; }
+
           NEW_PATCH=$((PATCH + 1))
           CALCULATED_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
 
-          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
-          echo "calculated_version=$CALCULATED_VERSION" >> $GITHUB_OUTPUT
+          echo "current_version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
+          echo "calculated_version=$CALCULATED_VERSION" >> "$GITHUB_OUTPUT"
 
           echo "Current version: $CURRENT_VERSION"
           echo "Calculated version: $CALCULATED_VERSION"
@@ -74,49 +102,74 @@ jobs:
       - name: Check if Version Update Required
         id: check_update
         run: |
+          set -euo pipefail
           GALAXY_FILE="${{ steps.get_collection.outputs.galaxy_file }}"
-          CURRENT_GALAXY_VERSION=$(yq '.version' $GALAXY_FILE)
+          CURRENT_GALAXY_VERSION=$(yq '.version' "$GALAXY_FILE")
           CALCULATED_VERSION="${{ steps.get_version.outputs.calculated_version }}"
 
           echo "Galaxy version: $CURRENT_GALAXY_VERSION"
           echo "Calculated version: $CALCULATED_VERSION"
 
           if [ "$CURRENT_GALAXY_VERSION" != "$CALCULATED_VERSION" ]; then
-            echo "needs_update=true" >> $GITHUB_OUTPUT
+            echo "needs_update=true" >> "$GITHUB_OUTPUT"
           else
-            echo "needs_update=false" >> $GITHUB_OUTPUT
+            echo "needs_update=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Update galaxy.yml Version
         if: steps.check_update.outputs.needs_update == 'true'
         run: |
+          set -euo pipefail
           GALAXY_FILE="${{ steps.get_collection.outputs.galaxy_file }}"
           CALCULATED_VERSION="${{ steps.get_version.outputs.calculated_version }}"
-          yq -i ".version = \"$CALCULATED_VERSION\"" $GALAXY_FILE
+          yq -i ".version = \"$CALCULATED_VERSION\"" "$GALAXY_FILE"
 
           echo "Updated $GALAXY_FILE with version: $CALCULATED_VERSION"
-          yq '.version' $GALAXY_FILE
+          yq '.version' "$GALAXY_FILE"
 
       - name: Update README.md Version
         if: steps.check_update.outputs.needs_update == 'true'
         run: |
+          set -euo pipefail
           COLLECTION_NAME="${{ steps.get_collection.outputs.collection_name }}"
           CALCULATED_VERSION="${{ steps.get_version.outputs.calculated_version }}"
+
+          # P2: Skip if no existing version token (new-collection PRs have no install line yet)
+          if ! grep -qE "${COLLECTION_NAME}-[0-9]+\.[0-9]+\.[0-9]+" README.md; then
+            echo "::notice::No existing README entry for ${COLLECTION_NAME}; skipping README sync (likely new collection)"
+            exit 0
+          fi
 
           # Update the version in the README.md installation command
           sed -i "s/${COLLECTION_NAME}-[0-9]\+\.[0-9]\+\.[0-9]\+/${COLLECTION_NAME}-${CALCULATED_VERSION}/g" README.md
 
           echo "Updated README.md with version: $CALCULATED_VERSION for collection: $COLLECTION_NAME"
 
+          # C4: README verification
+          grep -qF "${COLLECTION_NAME}-${CALCULATED_VERSION}" README.md || { echo "::error::README version substitution did not match"; exit 1; }
+
       - name: Commit Version Update
         if: steps.check_update.outputs.needs_update == 'true'
+        env:
+          HEAD_REF: ${{ github.head_ref }}
         run: |
+          set -euo pipefail
           GALAXY_FILE="${{ steps.get_collection.outputs.galaxy_file }}"
           COLLECTION_NAME="${{ steps.get_collection.outputs.collection_name }}"
           CALCULATED_VERSION="${{ steps.get_version.outputs.calculated_version }}"
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
 
-          git add $GALAXY_FILE README.md
+          git add "$GALAXY_FILE" README.md
           git commit -m "chore: bump $COLLECTION_NAME collection version to $CALCULATED_VERSION"
-          git push origin HEAD:${{ github.head_ref }}
+          git push origin "HEAD:$HEAD_REF" || { echo "::error::Push failed (race, deleted branch, or auth)"; exit 1; }
+
+      - name: Failure summary
+        if: failure()
+        run: |
+          {
+            echo "### Workflow failed";
+            echo "- Run: ${{ github.run_id }}";
+            echo "- Trigger: ${{ github.event_name }}";
+            echo "- Ref: ${{ github.ref }}";
+          } >> "$GITHUB_STEP_SUMMARY"
