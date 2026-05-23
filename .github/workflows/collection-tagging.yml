@@ -7,49 +7,74 @@ on:
     paths:
       - 'collections/nixknight/*/**'
 
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: tagging-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   create-tag:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: write
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
           fetch-depth: 0
+          fetch-tags: true
 
       - name: Install yq
-        uses: mikefarah/yq@v4
+        env:
+          YQ_VERSION: v4.46.1
+          YQ_SHA256: c0eb42f6fbf928f0413422967983dcdf9806cc4dedc9394edc60c0dfb4a98529
+        run: |
+          set -euo pipefail
+          sudo curl -fsSL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" -o /usr/local/bin/yq
+          echo "${YQ_SHA256}  /usr/local/bin/yq" | sha256sum -c -
+          sudo chmod +x /usr/local/bin/yq
 
       - name: Identify Changed Collection
         id: get_collection
         run: |
+          set -euo pipefail
           # Get a list of all files changed in the push
           files=$(git diff-tree --no-commit-id --name-only -r ${{ github.sha }})
 
           # Extract the collection name from the file paths
-          collection_name=$(echo "$files" | grep -oP 'collections/nixknight/\K[^/]+' | sort -u)
+          collection_name=$(echo "$files" | grep -oP 'collections/nixknight/\K[^/]+' | sort -u || true)
+
+          # C2: Empty-check guard
+          [ -z "$collection_name" ] && { echo "::error::No collection files detected"; exit 1; }
 
           # Check if more than one collection was changed
           if [ $(echo "$collection_name" | wc -l) -gt 1 ]; then
-            echo "More than one collection changed. This should not happen on main branch."
+            echo "::error::More than one collection changed. This should not happen on main branch."
             exit 1
           fi
 
-          echo "collection_name=$collection_name" >> $GITHUB_OUTPUT
-          echo "galaxy_file=collections/nixknight/$collection_name/galaxy.yml" >> $GITHUB_OUTPUT
+          # S2: Character-set guard
+          [[ "$collection_name" =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "::error::Invalid collection name"; exit 1; }
+
+          echo "collection_name=$collection_name" >> "$GITHUB_OUTPUT"
+          echo "galaxy_file=collections/nixknight/$collection_name/galaxy.yml" >> "$GITHUB_OUTPUT"
 
       - name: Get Version from galaxy.yml
         id: get_version
         run: |
+          set -euo pipefail
           GALAXY_FILE="${{ steps.get_collection.outputs.galaxy_file }}"
           COLLECTION_NAME="${{ steps.get_collection.outputs.collection_name }}"
-          VERSION=$(yq '.version' $GALAXY_FILE)
+          VERSION=$(yq '.version' "$GALAXY_FILE")
           TAG_NAME="$COLLECTION_NAME-$VERSION"
 
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
 
           echo "Version from $GALAXY_FILE: $VERSION"
           echo "Tag to create: $TAG_NAME"
@@ -57,27 +82,40 @@ jobs:
       - name: Check for Tag Existence
         id: check_tag
         run: |
+          set -euo pipefail
           TAG_NAME="${{ steps.get_version.outputs.tag_name }}"
 
-          if git tag -l | grep -q "^$TAG_NAME$"; then
-            echo "tag_exists=true" >> $GITHUB_OUTPUT
+          # C3: Use grep -qFx to avoid regex metacharacter matching
+          if git tag -l | grep -qFx "$TAG_NAME"; then
+            echo "tag_exists=true" >> "$GITHUB_OUTPUT"
             echo "Tag $TAG_NAME already exists"
           else
-            echo "tag_exists=false" >> $GITHUB_OUTPUT
+            echo "tag_exists=false" >> "$GITHUB_OUTPUT"
             echo "Tag $TAG_NAME does not exist, will create"
           fi
 
       - name: Create Tag and Push
         if: steps.check_tag.outputs.tag_exists == 'false'
         run: |
+          set -euo pipefail
           TAG_NAME="${{ steps.get_version.outputs.tag_name }}"
           VERSION="${{ steps.get_version.outputs.version }}"
           COLLECTION_NAME="${{ steps.get_collection.outputs.collection_name }}"
 
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
 
           git tag -a "$TAG_NAME" -m "Release $COLLECTION_NAME collection version $VERSION"
-          git push origin "$TAG_NAME"
+          git push origin "$TAG_NAME" || { echo "::error::Failed to push tag"; exit 1; }
 
           echo "Created and pushed tag: $TAG_NAME"
+
+      - name: Failure summary
+        if: failure()
+        run: |
+          {
+            echo "### Workflow failed";
+            echo "- Run: ${{ github.run_id }}";
+            echo "- Trigger: ${{ github.event_name }}";
+            echo "- Ref: ${{ github.ref }}";
+          } >> "$GITHUB_STEP_SUMMARY"
