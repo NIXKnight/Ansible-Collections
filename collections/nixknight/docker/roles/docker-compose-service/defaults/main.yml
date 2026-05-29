@@ -30,7 +30,7 @@ DOCKER_COMPOSE_SERVICE_MANIFEST: {}
   #       image: "{{ DOCKER_COMPOSE_SERVICE_IMAGES.postgresql.name }}"
   #       environment:
   #         POSTGRES_USER: root
-  #         POSTGRES_PASSWORD: knight
+  #         POSTGRES_PASSWORD: <REDACTED>
   #       volumes:
   #         - "postgres_data:/var/lib/postgresql/data"
   #       network_mode: host
@@ -57,3 +57,30 @@ DOCKER_COMPOSE_SERVICE_MANIFEST: {}
   #     redis_data:
   #       driver: local
 DOCKER_COMPOSE_SERVICE_REMOVE: false
+
+# V1 -- Python Docker SDK provisioning (Debian/bookworm).
+# Modules import `docker` at module-load time -- keep this true unless the host
+# already has python3-docker installed out-of-band.
+DOCKER_COMPOSE_SERVICE_INSTALL_PYTHON_DOCKER: true
+DOCKER_COMPOSE_SERVICE_PYTHON_DOCKER_PACKAGE: "python3-docker"
+
+# V2 -- File / directory mode + ownership defaults applied by the role.
+# Override these when operator-managed ownership differs from root:root.
+DOCKER_COMPOSE_SERVICE_DIR_MODE: "0750"
+DOCKER_COMPOSE_SERVICE_DIR_OWNER: "root"
+DOCKER_COMPOSE_SERVICE_DIR_GROUP: "root"
+DOCKER_COMPOSE_SERVICE_COMPOSE_FILE_MODE: "0640"
+DOCKER_COMPOSE_SERVICE_COMPOSE_FILE_OWNER: "root"
+DOCKER_COMPOSE_SERVICE_COMPOSE_FILE_GROUP: "root"
+DOCKER_COMPOSE_SERVICE_SYSTEMD_FILE_MODE: "0644"
+DOCKER_COMPOSE_SERVICE_SYSTEMD_FILE_OWNER: "root"
+DOCKER_COMPOSE_SERVICE_SYSTEMD_FILE_GROUP: "root"
+
+# V3 -- systemd unit timeouts (seconds).
+DOCKER_COMPOSE_SERVICE_TIMEOUT_START: 300
+DOCKER_COMPOSE_SERVICE_TIMEOUT_STOP: 300
+
+# V4 -- Force-refresh mutable tags (e.g., `latest`). When true the
+# image-management planner schedules a pull even if the local tag is present;
+# the resulting `changed` propagates to the service-restart handler.
+DOCKER_COMPOSE_SERVICE_FORCE_IMAGE_REFRESH: false

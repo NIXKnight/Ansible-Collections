@@ -1,5 +1,104 @@
 ---
 # tasks file for Ansible-Docker-Compose-Service
+
+- name: Validate Role Inputs
+  ansible.builtin.assert:
+    that:
+      # Service name: Compose project-name grammar.
+      - DOCKER_COMPOSE_SERVICE_NAME is string
+      - DOCKER_COMPOSE_SERVICE_NAME | length > 0
+      - DOCKER_COMPOSE_SERVICE_NAME is match('^[a-z0-9][a-z0-9_-]*$')
+
+      # Compose path: non-empty, absolute, no '..' segments.
+      - DOCKER_COMPOSE_SERVICE_COMPOSE_PATH is string
+      - DOCKER_COMPOSE_SERVICE_COMPOSE_PATH | length > 0
+      - DOCKER_COMPOSE_SERVICE_COMPOSE_PATH is match('^/')
+      - "'..' not in (DOCKER_COMPOSE_SERVICE_COMPOSE_PATH.split('/'))"
+
+      # Systemd unit path.
+      - DOCKER_COMPOSE_SERVICE_SYSTEMD_FILE is string
+      - DOCKER_COMPOSE_SERVICE_SYSTEMD_FILE | length > 0
+      - DOCKER_COMPOSE_SERVICE_SYSTEMD_FILE is match('^/')
+      - "'..' not in (DOCKER_COMPOSE_SERVICE_SYSTEMD_FILE.split('/'))"
+
+      # Config path: when defined and non-empty it must be absolute and clean.
+      - (DOCKER_COMPOSE_SERVICE_CONFIG_PATH | default('') | length == 0) or
+        (DOCKER_COMPOSE_SERVICE_CONFIG_PATH is match('^/') and
+         '..' not in (DOCKER_COMPOSE_SERVICE_CONFIG_PATH.split('/')))
+
+      # Manifest destination + the manifest/compose-path invariant.
+      - DOCKER_COMPOSE_SERVICE_MANIFEST is mapping
+      - DOCKER_COMPOSE_SERVICE_MANIFEST.dest is defined
+      - DOCKER_COMPOSE_SERVICE_MANIFEST.dest is string
+      - DOCKER_COMPOSE_SERVICE_MANIFEST.dest | length > 0
+      - DOCKER_COMPOSE_SERVICE_MANIFEST.dest is match('^/')
+      - "'..' not in (DOCKER_COMPOSE_SERVICE_MANIFEST.dest.split('/'))"
+      - DOCKER_COMPOSE_SERVICE_MANIFEST.dest ==
+        (DOCKER_COMPOSE_SERVICE_COMPOSE_PATH ~ '/docker-compose.yml')
+    fail_msg: >-
+      One or more role inputs failed validation. Required: NAME matches
+      ^[a-z0-9][a-z0-9_-]*$; COMPOSE_PATH, SYSTEMD_FILE, MANIFEST.dest absolute
+      and free of '..'; MANIFEST.dest must equal
+      "{{ DOCKER_COMPOSE_SERVICE_COMPOSE_PATH }}/docker-compose.yml".
+    quiet: true
+
+- name: Validate Additional Paths
+  ansible.builtin.assert:
+    that:
+      - item.path is defined
+      - item.path is string
+      - item.path | length > 0
+      - item.path is match('^/')
+      - "'..' not in (item.path.split('/'))"
+    fail_msg: >-
+      DOCKER_COMPOSE_SERVICE_ADDITIONAL_PATHS entry is invalid: path must be a
+      non-empty absolute string with no '..' segments. Offending entry: {{ item }}
+    quiet: true
+  loop: "{{ DOCKER_COMPOSE_SERVICE_ADDITIONAL_PATHS | default([]) }}"
+  loop_control:
+    label: "{{ item.path | default(item) }}"
+
+- name: Validate Template Destinations
+  ansible.builtin.assert:
+    that:
+      - item.dest is defined
+      - item.dest is string
+      - item.dest | length > 0
+      - item.dest is match('^/')
+      - "'..' not in (item.dest.split('/'))"
+    fail_msg: >-
+      DOCKER_COMPOSE_SERVICE_TEMPLATES entry is invalid: dest must be a
+      non-empty absolute string with no '..' segments. Offending entry: {{ item }}
+    quiet: true
+  loop: "{{ DOCKER_COMPOSE_SERVICE_TEMPLATES | default([]) }}"
+  loop_control:
+    label: "{{ item.dest | default(item) }}"
+
+- name: Validate File Destinations
+  ansible.builtin.assert:
+    that:
+      - item.dest is defined
+      - item.dest is string
+      - item.dest | length > 0
+      - item.dest is match('^/')
+      - "'..' not in (item.dest.split('/'))"
+    fail_msg: >-
+      DOCKER_COMPOSE_SERVICE_FILES entry is invalid: dest must be a non-empty
+      absolute string with no '..' segments. Offending entry: {{ item }}
+    quiet: true
+  loop: "{{ DOCKER_COMPOSE_SERVICE_FILES | default([]) }}"
+  loop_control:
+    label: "{{ item.dest | default(item) }}"
+
+# R2 -- Hoisted so both create and delete code paths have the Python SDK
+# available. The docker_image_mgmt_plan module imports `docker` at module-load
+# time; without the SDK the delete path also fails.
+- name: Install Python Docker Library
+  ansible.builtin.package:
+    name: "{{ DOCKER_COMPOSE_SERVICE_PYTHON_DOCKER_PACKAGE }}"
+    state: present
+  when: DOCKER_COMPOSE_SERVICE_INSTALL_PYTHON_DOCKER | bool
+
 - name: Create/Update Service
   ansible.builtin.include_tasks:
     file: create_update_service.yml

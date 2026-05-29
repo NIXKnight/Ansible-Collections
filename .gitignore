@@ -1,0 +1,72 @@
+# Ansible
+*.retry
+*.log
+MANIFEST.json
+FILES.json
+.ansible/
+collections/*/changelogs/.plugin-cache.yaml
+ansible_collections/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.pytest_cache/
+.tox/
+.coverage
+htmlcov/
+.molecule/
+tests/output/
+
+# Collection builds
+*.tar.gz
+build/*.tar.gz
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Secrets
+.vault_pass
+vault_pass.txt
+*.pem
+*.key
+credentials.yml
+
+# OS
+Thumbs.db

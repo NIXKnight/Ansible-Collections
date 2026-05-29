@@ -1,10 +1,11 @@
 ---
 # tasks file for Ansible-Docker-Compose-Service
-# This task uses docker_image_mgmt_plan module from https://github.com/NIXKnight/Ansible-Collections.git
+# Uses nixknight.docker.docker_image_mgmt_plan from this collection.
 - name: Create a Docker Container Image Management Plan
-  docker_image_mgmt_plan:
+  nixknight.docker.docker_image_mgmt_plan:
     images: "{{ DOCKER_COMPOSE_SERVICE_IMAGES }}"
     purge: "{{ DOCKER_COMPOSE_SERVICE_REMOVE }}"
+    force_refresh: "{{ DOCKER_COMPOSE_SERVICE_FORCE_IMAGE_REFRESH }}"
   register: container_image_mgmt_plan
 
 - name: Set Vars according to the Image Management Plan

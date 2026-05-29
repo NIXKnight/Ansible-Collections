@@ -1,103 +1,235 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+
+# Copyright (c) NIXKnight
+# MIT License (see LICENSE)
+
+from __future__ import absolute_import, division, print_function
+__metaclass__ = type
+
+DOCUMENTATION = r'''
+---
+module: docker_compose_service_check
+short_description: Report running containers for a Docker Compose project
+version_added: "0.1.5"
+description:
+  - Query a Docker Compose project for its currently running containers.
+  - Uses C(docker compose ps --status running --format json) so only running
+    containers are returned (in line with the historical C(ps -q) behavior).
+  - Read-only -- safe in C(check_mode).
+options:
+  project_directory:
+    description:
+      - Absolute path to the directory containing the project's
+        C(docker-compose.yml) (or equivalent compose file).
+      - Must exist, must be an absolute path, must not contain C(..) segments.
+    required: true
+    type: path
+  project_name:
+    description:
+      - Compose project name (passed as C(-p)).
+      - Must match C(^[a-z0-9][a-z0-9_-]*$) (Compose project-name grammar).
+    required: true
+    type: str
+author:
+  - Saad Ali (@NIXKnight)
+'''
+
+EXAMPLES = r'''
+- name: Inspect running containers of a compose project
+  nixknight.docker.docker_compose_service_check:
+    project_directory: /opt/postgresql
+    project_name: postgresql
+  register: pg_check
+
+- name: Show running container count
+  ansible.builtin.debug:
+    msg: "{{ pg_check.container_count }} container(s) running"
+'''
+
+RETURN = r'''
+changed:
+  description: Always C(false). This module is read-only.
+  type: bool
+  returned: always
+containers:
+  description: List of running containers for the given project.
+  type: list
+  elements: dict
+  returned: always
+  contains:
+    id:
+      description: Container ID (short or full, as reported by Compose).
+      type: str
+    name:
+      description: Container name with any leading C(/) stripped.
+      type: str
+container_count:
+  description: Number of running containers reported.
+  type: int
+  returned: always
+'''
+
+import json
+import os
+import pathlib
+import re
+
 from ansible.module_utils.basic import AnsibleModule
-import subprocess
 
-def run_command(command):
-    """Run a shell command and return output, capturing both stdout and stderr"""
+
+PROJECT_NAME_RE = re.compile(r'^[a-z0-9][a-z0-9_-]*$')
+CONTAINER_ID_RE = re.compile(r'^[a-f0-9]{12,64}$')
+
+
+def _validate_project_directory(module, project_directory):
+    """Return a validated absolute project directory or fail the module."""
+    if not project_directory:
+        module.fail_json(msg="project_directory must not be empty")
+
+    if not os.path.isabs(project_directory):
+        module.fail_json(
+            msg="project_directory must be an absolute path: %s" % project_directory
+        )
+
+    resolved = pathlib.Path(project_directory).resolve()
+    if ".." in resolved.parts:
+        module.fail_json(
+            msg="project_directory must not contain '..' segments: %s" % project_directory
+        )
+
+    if not os.path.isdir(project_directory):
+        module.fail_json(
+            msg="project_directory does not exist or is not a directory: %s"
+            % project_directory
+        )
+
+    return project_directory
+
+
+def _validate_project_name(module, project_name):
+    """Validate the Compose project name against the canonical grammar."""
+    if not project_name:
+        module.fail_json(msg="project_name must not be empty")
+
+    if not PROJECT_NAME_RE.match(project_name):
+        module.fail_json(
+            msg=(
+                "project_name does not match ^[a-z0-9][a-z0-9_-]*$ "
+                "(Compose project-name grammar): %s"
+            )
+            % project_name
+        )
+
+    return project_name
+
+
+def _parse_compose_ps_json(stdout):
+    """Parse `docker compose ps --format json` output.
+
+    Compose versions differ: some emit a single JSON array, others emit
+    newline-delimited JSON objects. Handle both.
+    """
+    stdout = (stdout or "").strip()
+    if not stdout:
+        return []
+
+    # Try a single JSON document first (array or object).
     try:
-        # Start the process and capture stdout and stderr
-        process = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            shell=True,
-            text=True
-        )
-        # Communicate with the process to get results
-        stdout, stderr = process.communicate()
-        # Return dictionary containing exit code, stdout, and stderr
-        return {
-            'return_code': process.returncode,
-            'stdout': stdout.strip(),
-            'stderr': stderr.strip()
-        }
-    except Exception as e:
-        # Return error details if the command fails
-        return {
-            'return_code': 1,
-            'stdout': '',
-            'stderr': str(e)
-        }
+        doc = json.loads(stdout)
+        if isinstance(doc, list):
+            return doc
+        if isinstance(doc, dict):
+            return [doc]
+    except ValueError:
+        pass
 
-def get_running_docker_containers(project_directory, project_name):
-    """Retrieve a list of running containers for a specific Docker Compose project"""
-    # Command to change to the specified project directory
-    cmd_cd = f"cd {project_directory}"
-
-    # Command to list running container IDs for the project
-    cmd_ps = f"docker compose -p {project_name} ps -q --status running"
-
-    # Combine the two commands with && to execute in sequence
-    command = f"{cmd_cd} && {cmd_ps}"
-    result = run_command(command)
-
-    # Check if the command was successful
-    if result['return_code'] != 0:
-        # Return an empty list and the error message if there was an error
-        return [], result['stderr']
-
-    # Split stdout into individual container IDs if there are any
-    container_ids = result['stdout'].split('\n') if result['stdout'] else []
+    # Fall back to NDJSON (one object per line).
     containers = []
-
-    # Loop through each container ID to retrieve its name
-    for container_id in container_ids:
-        if not container_id:
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line:
             continue
+        try:
+            containers.append(json.loads(line))
+        except ValueError as exc:
+            raise ValueError("failed to parse compose ps JSON line: %s" % exc)
+    return containers
 
-        # Command to inspect the container and get its name
-        inspect_cmd = f"docker inspect --format='{{{{.Name}}}}' {container_id}"
-        inspect_result = run_command(inspect_cmd)
 
-        # If the command succeeded, strip the leading '/' and store the container details
-        if inspect_result['return_code'] == 0:
-            container_name = inspect_result['stdout'].strip('/')
-            containers.append({
-                'id': container_id,
-                'name': container_name
-            })
+def get_running_docker_containers(module, project_directory, project_name):
+    """Return (containers, error_message) for the named compose project."""
+    argv = [
+        "docker", "compose",
+        "-p", project_name,
+        "ps",
+        "--status", "running",
+        "--format", "json",
+    ]
 
-    # Return the list of containers and None (no error)
-    return containers, None
-
-def main():
-    # Define arguments that the module will accept
-    module = AnsibleModule(
-        argument_spec=dict(
-            project_directory=dict(type='str', required=True),
-            project_name=dict(type='str', required=True)
-        )
+    rc, stdout, stderr = module.run_command(
+        argv,
+        cwd=project_directory,
+        check_rc=False,
     )
 
-    # Get arguments from Ansible
-    project_directory = module.params['project_directory']
-    project_name = module.params['project_name']
+    if rc != 0:
+        return [], (stderr or "").strip() or "docker compose ps exited with rc=%d" % rc
 
-    # Retrieve running containers and any error encountered
-    containers, error = get_running_docker_containers(project_directory, project_name)
+    try:
+        parsed = _parse_compose_ps_json(stdout)
+    except ValueError as exc:
+        return [], str(exc)
 
-    # If there is an error, fail the module with an error message
+    containers = []
+    for entry in parsed:
+        # Compose `ps --format json` reports `ID` (full ID), `Name`, `Service`.
+        # Use whichever ID-bearing key is present.
+        cid = entry.get("ID") or entry.get("Id") or entry.get("ContainerID") or ""
+        name = entry.get("Name") or entry.get("Names") or ""
+
+        # Defensive ID validation -- even if the ID came from `docker compose ps`
+        # we revalidate to keep the contract narrow.
+        if cid and not CONTAINER_ID_RE.match(cid):
+            return [], "compose returned a malformed container ID: %s" % cid
+
+        containers.append({
+            "id": cid,
+            "name": (name or "").lstrip("/"),
+        })
+
+    return containers, None
+
+
+def main():
+    module = AnsibleModule(
+        argument_spec=dict(
+            project_directory=dict(type='path', required=True),
+            project_name=dict(type='str', required=True),
+        ),
+        supports_check_mode=True,
+    )
+
+    project_directory = _validate_project_directory(
+        module, module.params['project_directory']
+    )
+    project_name = _validate_project_name(
+        module, module.params['project_name']
+    )
+
+    containers, error = get_running_docker_containers(
+        module, project_directory, project_name
+    )
+
     if error:
-        module.fail_json(msg=f"Error checking containers: {error}")
+        module.fail_json(msg="Error checking containers: %s" % error)
 
-    # Set result with container details and count, without any changes made
-    result = {
-        'changed': False,
-        'containers': containers,
-        'container_count': len(containers)
-    }
+    module.exit_json(
+        changed=False,
+        containers=containers,
+        container_count=len(containers),
+    )
 
-    # Exit module successfully, returning result data
-    module.exit_json(**result)
 
 if __name__ == '__main__':
     main()

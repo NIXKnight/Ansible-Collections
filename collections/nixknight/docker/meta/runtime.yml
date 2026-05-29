@@ -1,0 +1,7 @@
+---
+requires_ansible: '>=2.15.0'
+
+action_groups:
+  nixknight_docker:
+    - docker_compose_service_check
+    - docker_image_mgmt_plan

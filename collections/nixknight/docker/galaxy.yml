@@ -1,7 +1,7 @@
 ---
 namespace: "nixknight"
 name: "docker"
-version: "0.1.4"
+version: "0.1.5"
 readme: "README.md"
 authors:
   - "Saad Ali <engr.saadali786@gmail.com>"
@@ -12,3 +12,5 @@ tags:
   - docker
   - containers
   - containerization
+dependencies:
+  "community.docker": ">=3.0.0"
