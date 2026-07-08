@@ -1,0 +1,15 @@
+---
+namespace: "nixknight"
+name: "kubernetes"
+version: "0.1.0"
+readme: "README.md"
+authors:
+  - "Saad Ali <engr.saadali786@gmail.com>"
+description: "Ansible collection for Kubernetes-adjacent automation"
+license:
+  - "MIT"
+tags:
+  - kubernetes
+  - talos
+  - baremetal
+  - k8s

@@ -1,0 +1,244 @@
+---
+# tasks file for talos-baremetal-image
+# DESTRUCTIVE, default OFF. Every task below is gated on tbi_usb_enabled, which
+# is only true when TBI_USB_WRITE_ENABLE and TBI_USB_CONFIRM are both true and
+# TBI_USB_DEVICE looks like a /dev path. The dd itself additionally never runs
+# in check mode (command/shell auto-skip) and runs as root. Guards: prefer a
+# stable by-id path, resolve symlinks to the WHOLE disk, reject partitions,
+# reject removable==0, reject any holders/slaves or dm/md/LUKS relationships,
+# reject mounted children, and reject the disk backing / (compared by MAJ:MIN).
+
+- name: Determine Whether USB Writing Is Enabled
+  ansible.builtin.set_fact:
+    tbi_usb_enabled: >-
+      {{
+        (TBI_USB_WRITE_ENABLE | bool)
+        and (TBI_USB_CONFIRM | bool)
+        and (TBI_USB_DEVICE is string)
+        and (TBI_USB_DEVICE is match('^/dev/'))
+      }}
+
+- name: Assert a Stable by-id Device Unless Overridden
+  ansible.builtin.assert:
+    that:
+      - (TBI_USB_DEVICE is match('^/dev/disk/by-id/')) or (TBI_USB_ALLOW_UNSTABLE_DEVICE | bool)
+    fail_msg: >-
+      TBI_USB_DEVICE ('{{ TBI_USB_DEVICE }}') is not a /dev/disk/by-id/... path.
+      by-id paths are stable across reboots and reduce the chance of writing to
+      the wrong disk. Set TBI_USB_ALLOW_UNSTABLE_DEVICE=true to override (not
+      recommended).
+    quiet: true
+  when: tbi_usb_enabled | bool
+
+- name: Resolve Device to Its Real Node
+  ansible.builtin.command:
+    argv:
+      - "readlink"
+      - "-f"
+      - "{{ TBI_USB_DEVICE }}"
+  register: tbi_usb_realdev_raw
+  changed_when: false
+  when: tbi_usb_enabled | bool
+
+- name: Set Resolved Device Fact
+  ansible.builtin.set_fact:
+    tbi_usb_realdev: "{{ tbi_usb_realdev_raw.stdout | trim }}"
+  when: tbi_usb_enabled | bool
+
+- name: Stat the Resolved Device
+  ansible.builtin.stat:
+    path: "{{ tbi_usb_realdev }}"
+  register: tbi_usb_devstat
+  when: tbi_usb_enabled | bool
+
+- name: Assert the Resolved Path Is a Block Device
+  ansible.builtin.assert:
+    that:
+      - tbi_usb_devstat.stat.exists
+      - tbi_usb_devstat.stat.isblk is defined
+      - tbi_usb_devstat.stat.isblk
+    fail_msg: >-
+      Resolved device '{{ tbi_usb_realdev }}' does not exist or is not a block
+      device.
+    quiet: true
+  when: tbi_usb_enabled | bool
+
+- name: Inspect the Resolved Device Topology
+  ansible.builtin.command:
+    argv:
+      - "lsblk"
+      - "-nro"
+      - "TYPE,RM,MOUNTPOINT"
+      - "{{ tbi_usb_realdev }}"
+  register: tbi_usb_lsblk
+  changed_when: false
+  when: tbi_usb_enabled | bool
+
+- name: Read Whole-Disk Attributes
+  ansible.builtin.command:
+    argv:
+      - "lsblk"
+      - "-dnro"
+      - "TYPE,RM,SIZE,MAJ:MIN"
+      - "{{ tbi_usb_realdev }}"
+  register: tbi_usb_disk
+  changed_when: false
+  when: tbi_usb_enabled | bool
+
+- name: Read Device Model
+  ansible.builtin.command:
+    argv:
+      - "lsblk"
+      - "-dnro"
+      - "MODEL"
+      - "{{ tbi_usb_realdev }}"
+  register: tbi_usb_model
+  changed_when: false
+  when: tbi_usb_enabled | bool
+
+- name: Read Device Serial
+  ansible.builtin.command:
+    argv:
+      - "lsblk"
+      - "-dnro"
+      - "SERIAL"
+      - "{{ tbi_usb_realdev }}"
+  register: tbi_usb_serial
+  changed_when: false
+  when: tbi_usb_enabled | bool
+
+- name: Identify the Root Source Device
+  ansible.builtin.command:
+    argv:
+      - "findmnt"
+      - "-nro"
+      - "SOURCE"
+      - "/"
+  register: tbi_usb_root_src
+  changed_when: false
+  when: tbi_usb_enabled | bool
+
+- name: Identify the Root Whole-Disk MAJ:MIN
+  ansible.builtin.shell:
+    cmd: >-
+      set -euo pipefail;
+      root_src="$(findmnt -nro SOURCE /)";
+      pk="$(lsblk -nso PKNAME "${root_src}" | awk 'NF{print; exit}')";
+      if [ -z "${pk:-}" ]; then
+        lsblk -dnro 'MAJ:MIN' "${root_src}";
+      else
+        lsblk -dnro 'MAJ:MIN' "/dev/${pk}";
+      fi
+  register: tbi_usb_root_majmin
+  changed_when: false
+  when: tbi_usb_enabled | bool
+
+- name: Assert the Target Is a Whole Removable Disk With No Risky Relationships
+  ansible.builtin.assert:
+    that:
+      # Whole disk, not a partition or mapped device.
+      - (tbi_usb_disk.stdout.split() | first) == 'disk'
+      # Removable flag on the whole disk.
+      - (tbi_usb_disk.stdout.split()[1]) == '1'
+      # Only disk/part node types in the tree: no crypt/lvm/raid/dm holders.
+      - (tbi_usb_lsblk.stdout_lines | map('trim') | map('regex_replace', '\s+.*$', '')
+         | select('!=', '') | list | unique | difference(['disk', 'part'])) | length == 0
+      # Nothing mounted anywhere on the device or its children.
+      - (tbi_usb_lsblk.stdout_lines | map('regex_replace', '^\S+\s+\S+\s*', '')
+         | map('trim') | select('!=', '') | list) | length == 0
+      # Target whole-disk MAJ:MIN differs from the root disk's MAJ:MIN.
+      - (tbi_usb_disk.stdout.split() | last) != (tbi_usb_root_majmin.stdout | trim)
+    fail_msg: >-
+      Refusing to write: target '{{ tbi_usb_realdev }}' failed safety checks.
+      It must be a WHOLE removable disk (TYPE=disk, RM=1) with no
+      crypt/lvm/raid/dm holders, nothing mounted, and a MAJ:MIN different from
+      the disk backing / (root MAJ:MIN {{ tbi_usb_root_majmin.stdout | default('?') | trim }},
+      target {{ tbi_usb_disk.stdout.split() | last }}).
+    quiet: true
+  when: tbi_usb_enabled | bool
+
+- name: Select the Source Profile
+  ansible.builtin.set_fact:
+    tbi_usb_src_profile: >-
+      {{
+        (TBI_IMAGE_PROFILES | selectattr('name', 'equalto', TBI_USB_PROFILE) | list | first)
+        if (TBI_IMAGE_PROFILES | selectattr('name', 'equalto', TBI_USB_PROFILE) | list | length > 0)
+        else {}
+      }}
+  when: tbi_usb_enabled | bool
+
+- name: Assert the Source Profile Exists
+  ansible.builtin.assert:
+    that:
+      - tbi_usb_src_profile | length > 0
+      - TBI_USB_SOURCE_FORMAT in ['iso', 'raw']
+    fail_msg: >-
+      TBI_USB_PROFILE ('{{ TBI_USB_PROFILE }}') must name one of TBI_IMAGE_PROFILES
+      and TBI_USB_SOURCE_FORMAT must be 'iso' or 'raw'.
+    quiet: true
+  when: tbi_usb_enabled | bool
+
+- name: Compute the Source Architecture and Suffix
+  ansible.builtin.set_fact:
+    tbi_usb_src_arch: "{{ tbi_usb_src_profile.arch | default(TBI_DEFAULT_ARCH) }}"
+    tbi_usb_src_suffix: "{{ 'iso' if TBI_USB_SOURCE_FORMAT == 'iso' else 'raw.xz' }}"
+  when: tbi_usb_enabled | bool
+
+- name: Compute the Source Asset Path
+  ansible.builtin.set_fact:
+    tbi_usb_src_path: "{{ TBI_OUTPUT_DIR }}/{{ TBI_USB_PROFILE }}/metal-{{ tbi_usb_src_arch }}.{{ tbi_usb_src_suffix }}"
+  when: tbi_usb_enabled | bool
+
+- name: Stat the Source Asset
+  ansible.builtin.stat:
+    path: "{{ tbi_usb_src_path }}"
+  register: tbi_usb_srcstat
+  when: tbi_usb_enabled | bool
+
+- name: Assert the Source Asset Exists
+  ansible.builtin.assert:
+    that:
+      - tbi_usb_srcstat.stat.exists
+      - tbi_usb_srcstat.stat.isreg
+    fail_msg: >-
+      Source asset '{{ tbi_usb_src_path }}' for profile '{{ TBI_USB_PROFILE }}'
+      ({{ TBI_USB_SOURCE_FORMAT }}) was not found. Build it first.
+    quiet: true
+  when: tbi_usb_enabled | bool
+
+- name: Show the Target and Source Before Writing
+  ansible.builtin.debug:
+    msg: >-
+      About to OVERWRITE {{ tbi_usb_realdev }} (model
+      '{{ tbi_usb_model.stdout | default('') | trim }}', serial
+      '{{ tbi_usb_serial.stdout | default('') | trim }}', size
+      {{ tbi_usb_disk.stdout.split()[2] | default('?') }}) with
+      {{ tbi_usb_src_path }} ({{ TBI_USB_SOURCE_FORMAT }}). All existing data on
+      the device will be destroyed.
+  when: tbi_usb_enabled | bool
+
+- name: Write ISO to USB
+  ansible.builtin.shell:
+    cmd: >-
+      set -euo pipefail;
+      dd if='{{ tbi_usb_src_path }}' of='{{ tbi_usb_realdev }}'
+      bs=4M conv=fsync oflag=direct status=progress
+  become: true
+  register: tbi_usb_dd_iso
+  changed_when: tbi_usb_dd_iso.rc == 0
+  when:
+    - tbi_usb_enabled | bool
+    - TBI_USB_SOURCE_FORMAT == 'iso'
+
+- name: Write Decompressed Raw Image to USB
+  ansible.builtin.shell:
+    cmd: >-
+      set -euo pipefail;
+      xz -dc '{{ tbi_usb_src_path }}'
+      | dd of='{{ tbi_usb_realdev }}' bs=4M conv=fsync oflag=direct status=progress
+  become: true
+  register: tbi_usb_dd_raw
+  changed_when: tbi_usb_dd_raw.rc == 0
+  when:
+    - tbi_usb_enabled | bool
+    - TBI_USB_SOURCE_FORMAT == 'raw'

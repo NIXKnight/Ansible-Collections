@@ -1,0 +1,13 @@
+#!ipxe
+# boot.ipxe rendered by talos-baremetal-image (imager backend, profile {{ tbi_profile.name }}).
+# Talos does NOT embed extra kernel args into the PXE kernel/initramfs; they are
+# placed on the kernel line below. Serve this file together with the imager
+# kernel/initramfs output. Override TBI_IPXE_BASE_URL to point at the HTTP(S)
+# host that serves the kernel/initramfs (leave empty to load them relative to
+# the directory this script is served from).
+{% set base = (TBI_IPXE_BASE_URL | default('')) %}
+{% set prefix = (base ~ '/') if (base | length > 0) else '' %}
+{% set extra = (tbi_profile.kernel_args | default([]) | join(' ')) %}
+kernel {{ prefix }}{{ tbi_imager_kernel_basename }} talos.platform=metal console=tty0 console=ttyS0 init_on_alloc=1 slab_nomerge pti=on{% if extra | length > 0 %} {{ extra }}{% endif %} initrd={{ tbi_imager_initramfs_basename }}
+initrd {{ prefix }}{{ tbi_imager_initramfs_basename }}
+boot

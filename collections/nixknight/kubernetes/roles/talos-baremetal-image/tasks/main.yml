@@ -1,0 +1,86 @@
+---
+# tasks file for talos-baremetal-image
+
+- name: Validate Role Inputs
+  ansible.builtin.assert:
+    that:
+      # Talos version: vX.Y.Z grammar.
+      - TBI_TALOS_VERSION is string
+      - TBI_TALOS_VERSION is match('^v[0-9]+\.[0-9]+\.[0-9]+')
+
+      # Build backend enum.
+      - TBI_BUILD_BACKEND in ['factory', 'imager']
+
+      # Output dir: non-empty, absolute, no '..' segments.
+      - TBI_OUTPUT_DIR is string
+      - TBI_OUTPUT_DIR | length > 0
+      - TBI_OUTPUT_DIR is match('^/')
+      - "'..' not in (TBI_OUTPUT_DIR.split('/'))"
+
+      # Profiles: a non-empty list.
+      - TBI_IMAGE_PROFILES is sequence
+      - TBI_IMAGE_PROFILES is not string
+      - TBI_IMAGE_PROFILES | length > 0
+    fail_msg: >-
+      One or more role inputs failed validation. Required: TBI_TALOS_VERSION
+      matches ^v[0-9]+\.[0-9]+\.[0-9]+; TBI_BUILD_BACKEND in [factory, imager];
+      TBI_OUTPUT_DIR absolute and free of '..'; TBI_IMAGE_PROFILES a non-empty
+      list.
+    quiet: true
+
+- name: Validate Image Profiles
+  ansible.builtin.assert:
+    that:
+      - item.name is defined
+      - item.name is string
+      - item.name | length > 0
+      - item.name is match('^[a-z0-9][a-z0-9_-]*$')
+      - (item.arch | default(TBI_DEFAULT_ARCH)) in tbi_valid_arches
+      - item.formats is defined
+      - item.formats is sequence
+      - item.formats is not string
+      - item.formats | length > 0
+      - item.formats | difference(tbi_valid_formats) | length == 0
+      # SecureBoot is reserved but unimplemented in v1: refuse it rather than
+      # ship a half-wired path.
+      - (item.secureboot | default(false)) | bool == false
+      # Imager extension digests must be explicit and pinned (never guessed).
+      - (TBI_BUILD_BACKEND != 'imager') or
+        (item.extension_images | default([]) | length == 0) or
+        (item.extension_images | select('match', '.+' ~ tbi_digest_ref_regex) | list | length ==
+         item.extension_images | length)
+    fail_msg: >-
+      TBI_IMAGE_PROFILES entry is invalid. Each profile needs: name matching
+      ^[a-z0-9][a-z0-9_-]*$; arch in {{ tbi_valid_arches }}; a non-empty formats
+      list that is a subset of {{ tbi_valid_formats }}; secureboot must be false
+      (unimplemented in v1); and on the imager backend every extension_images
+      entry must be a pinned digest ref (…@sha256:<64 hex>). Offending entry:
+      {{ item }}
+    quiet: true
+  loop: "{{ TBI_IMAGE_PROFILES }}"
+  loop_control:
+    label: "{{ item.name | default(item) }}"
+
+- name: Initialize Manifest Accumulator
+  ansible.builtin.set_fact:
+    tbi_manifest_profiles: []
+
+- name: Run Preflight Checks
+  ansible.builtin.include_tasks:
+    file: preflight.yml
+
+- name: Build Each Image Profile
+  ansible.builtin.include_tasks:
+    file: build_profile.yml
+  loop: "{{ TBI_IMAGE_PROFILES }}"
+  loop_control:
+    loop_var: tbi_profile
+    label: "{{ tbi_profile.name }}"
+
+- name: Write Manifest and Print Hints
+  ansible.builtin.include_tasks:
+    file: output.yml
+
+- name: Write Boot Media to USB (self-guarded, default OFF)
+  ansible.builtin.include_tasks:
+    file: usb_write.yml

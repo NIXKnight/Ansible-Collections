@@ -1,0 +1,98 @@
+---
+# tasks file for talos-baremetal-image
+# Build assets locally with the siderolabs imager container. Extension digests
+# are taken verbatim from profile.extension_images (explicit, pinned digest
+# refs) and are never guessed; resolve them out of band, e.g.:
+#   crane export ghcr.io/siderolabs/extensions:<ver> | tar x -O image-digests | grep <name>
+# NOTE: the raw/metal imager run is privileged and is intended to run only on a
+# trusted build host. Talos does NOT embed extra kernel args into the PXE
+# kernel/initramfs, so the role also renders a local iPXE file (boot.ipxe.j2)
+# that carries the kernel args on its boot line.
+
+- name: Compose Imager Argv Fragments
+  ansible.builtin.set_fact:
+    tbi_imager_base: >-
+      {{
+        ['docker', 'run', '--rm', '-t', '-v', tbi_p_outdir ~ ':/out']
+        + (['-v', '/dev:/dev', '--privileged'] if ('raw' in tbi_p_formats) else [])
+        + [TBI_IMAGER_IMAGE ~ ':' ~ tbi_p_version]
+      }}
+    tbi_imager_ext_args: >-
+      {{
+        ['--system-extension-image']
+        | product(tbi_profile.extension_images | default([]))
+        | map('list') | flatten
+      }}
+    tbi_imager_karg_args: >-
+      {{
+        ['--extra-kernel-arg']
+        | product(tbi_profile.kernel_args | default([]))
+        | map('list') | flatten
+      }}
+
+- name: Build Metal ISO with the Imager
+  ansible.builtin.command:
+    argv: >-
+      {{
+        tbi_imager_base
+        + ['iso', '--arch', tbi_p_arch]
+        + tbi_imager_ext_args
+        + tbi_imager_karg_args
+      }}
+  args:
+    creates: "{{ tbi_p_outdir }}/{{ tbi_iso_basename }}"
+  register: tbi_imager_iso
+  changed_when: tbi_imager_iso.rc == 0
+  when: "'iso' in tbi_p_formats"
+
+- name: Build Metal Raw Disk Image with the Imager
+  ansible.builtin.command:
+    argv: >-
+      {{
+        tbi_imager_base
+        + ['metal', '--arch', tbi_p_arch]
+        + tbi_imager_ext_args
+        + tbi_imager_karg_args
+      }}
+  args:
+    creates: "{{ tbi_p_outdir }}/{{ tbi_raw_basename }}"
+  register: tbi_imager_raw
+  changed_when: tbi_imager_raw.rc == 0
+  when: "'raw' in tbi_p_formats"
+
+- name: Build PXE Kernel with the Imager
+  ansible.builtin.command:
+    argv: >-
+      {{
+        tbi_imager_base
+        + ['iso', '--arch', tbi_p_arch, '--output-kind', 'kernel']
+        + tbi_imager_ext_args
+        + tbi_imager_karg_args
+      }}
+  args:
+    creates: "{{ tbi_p_outdir }}/{{ tbi_imager_kernel_basename }}"
+  register: tbi_imager_kernel
+  changed_when: tbi_imager_kernel.rc == 0
+  when: "'pxe' in tbi_p_formats"
+
+- name: Build PXE Initramfs with the Imager
+  ansible.builtin.command:
+    argv: >-
+      {{
+        tbi_imager_base
+        + ['iso', '--arch', tbi_p_arch, '--output-kind', 'initramfs']
+        + tbi_imager_ext_args
+        + tbi_imager_karg_args
+      }}
+  args:
+    creates: "{{ tbi_p_outdir }}/{{ tbi_imager_initramfs_basename }}"
+  register: tbi_imager_initramfs
+  changed_when: tbi_imager_initramfs.rc == 0
+  when: "'pxe' in tbi_p_formats"
+
+- name: Render Local iPXE Boot Script
+  ansible.builtin.template:
+    src: "boot.ipxe.j2"
+    dest: "{{ tbi_p_outdir }}/{{ tbi_imager_ipxe_basename }}"
+    mode: "{{ TBI_ASSET_MODE }}"
+  when: "'pxe' in tbi_p_formats"

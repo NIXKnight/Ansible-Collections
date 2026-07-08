@@ -1,0 +1,40 @@
+---
+# tasks file for talos-baremetal-image
+# Per-profile entry point (loop_var: tbi_profile). Computes per-profile facts,
+# dispatches to the factory or imager backend, then records produced assets.
+
+- name: Compute Per-Profile Facts
+  ansible.builtin.set_fact:
+    tbi_p_name: "{{ tbi_profile.name }}"
+    tbi_p_arch: "{{ tbi_profile.arch | default(TBI_DEFAULT_ARCH) }}"
+    tbi_p_version: "{{ tbi_profile.talos_version | default(TBI_TALOS_VERSION) }}"
+    tbi_p_formats: "{{ tbi_profile.formats }}"
+    tbi_p_outdir: "{{ TBI_OUTPUT_DIR }}/{{ tbi_profile.name }}"
+    tbi_p_schematic_id: "{{ tbi_profile.schematic_id | default('') }}"
+
+- name: Create Per-Profile Output Directory
+  ansible.builtin.file:
+    path: "{{ tbi_p_outdir }}"
+    state: directory
+    mode: "{{ TBI_DIR_MODE }}"
+
+- name: Generate Factory Schematic
+  ansible.builtin.include_tasks:
+    file: schematic.yml
+  when:
+    - TBI_BUILD_BACKEND == 'factory'
+    - tbi_p_schematic_id | length == 0
+
+- name: Download Factory Assets
+  ansible.builtin.include_tasks:
+    file: factory.yml
+  when: TBI_BUILD_BACKEND == 'factory'
+
+- name: Build Assets with the Imager
+  ansible.builtin.include_tasks:
+    file: imager.yml
+  when: TBI_BUILD_BACKEND == 'imager'
+
+- name: Record and Verify Produced Assets
+  ansible.builtin.include_tasks:
+    file: verify.yml

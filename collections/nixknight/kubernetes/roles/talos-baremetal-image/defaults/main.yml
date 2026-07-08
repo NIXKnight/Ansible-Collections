@@ -1,0 +1,116 @@
+---
+# defaults file for talos-baremetal-image
+
+# Talos release used for every profile unless a profile overrides it with its
+# own `talos_version` key. Bump this to retarget all images.
+TBI_TALOS_VERSION: "v1.12.7"
+
+# Build backend: "factory" (Talos Image Factory HTTP API, no local tooling) or
+# "imager" (offline/custom builds via the siderolabs imager container).
+TBI_BUILD_BACKEND: "factory"
+
+# Talos Image Factory endpoint (factory backend only).
+TBI_FACTORY_API: "https://factory.talos.dev"
+
+# Imager container image (imager backend only). The role appends ":<version>".
+TBI_IMAGER_IMAGE: "ghcr.io/siderolabs/imager"
+
+# Architecture applied to a profile that does not declare its own `arch`.
+TBI_DEFAULT_ARCH: "amd64"
+
+# Root directory for produced assets. Each profile gets its own subdirectory
+# (TBI_OUTPUT_DIR/<profile-name>/). Defaults to a path next to the playbook;
+# the role is intended to run on the build host (often localhost).
+TBI_OUTPUT_DIR: "{{ playbook_dir }}/talos-images"
+
+# Per-node-class image definitions. Each entry builds one Factory schematic (or
+# one imager invocation set). A Talos *metal* image does NOT itself encode
+# control-plane-vs-worker; the `role` key is organizational (naming / grouping).
+# Profiles differentiate images by extension set / kernel args / meta / overlay
+# / arch. Optional per-profile keys: talos_version, meta (list of {key, value}),
+# overlay ({name, image}), schematic_id (skip Factory generation),
+# extension_images (full digest refs, imager backend only),
+# expected_checksums (map of asset-basename -> sha256 for real verification),
+# secureboot (RESERVED, unimplemented in v1).
+TBI_IMAGE_PROFILES:
+  - name: "control-plane"
+    role: "controlplane"
+    arch: "amd64"
+    extensions:
+      - "siderolabs/iscsi-tools"
+      - "siderolabs/util-linux-tools"
+    kernel_args: []
+    formats:
+      - "iso"
+      - "pxe"
+  - name: "worker"
+    role: "worker"
+    arch: "amd64"
+    extensions:
+      - "siderolabs/iscsi-tools"
+      - "siderolabs/util-linux-tools"
+    kernel_args: []
+    formats:
+      - "iso"
+      - "pxe"
+  - name: "worker-gpu"
+    role: "worker"
+    arch: "amd64"
+    extensions:
+      - "siderolabs/nonfree-kmod-nvidia-production"
+      - "siderolabs/nvidia-container-toolkit-production"
+    kernel_args: []
+    formats:
+      - "iso"
+      - "pxe"
+  - name: "worker-storage"
+    role: "worker"
+    arch: "amd64"
+    extensions:
+      - "siderolabs/iscsi-tools"
+      - "siderolabs/util-linux-tools"
+      - "siderolabs/drbd"
+    kernel_args: []
+    formats:
+      - "iso"
+      - "pxe"
+
+# When true (default), the factory backend treats a non-200 response from the
+# schematic POST as fatal, so unknown/invalid extensions fail the run. For the
+# imager backend it enforces that every `extension_images` entry is a pinned
+# digest ref. This does NOT GET a guessed "official extensions" endpoint;
+# validation is Factory's own schematic response / explicit digest checks.
+TBI_VALIDATE_EXTENSIONS: true
+
+# Checksum handling. By default the role RECORDS the sha256 of each produced
+# asset into the manifest (recording, not authenticity proof). Real verification
+# (assert-match, fail on mismatch) runs ONLY when TBI_VERIFY_CHECKSUM is true
+# AND a profile supplies `expected_checksums` for the asset basename.
+TBI_VERIFY_CHECKSUM: true
+
+# Download resilience (factory backend).
+TBI_API_RETRIES: 3
+TBI_API_DELAY: 10
+TBI_DOWNLOAD_TIMEOUT: 1200
+
+# Write a manifest.json under TBI_OUTPUT_DIR describing every profile's assets.
+TBI_CREATE_MANIFEST: true
+
+# USB write (destructive `dd`) -- ALL default-safe / OFF. Writing requires
+# TBI_USB_WRITE_ENABLE and TBI_USB_CONFIRM both true and a valid device.
+TBI_USB_WRITE_ENABLE: false
+# Prefer a stable /dev/disk/by-id/... path. A bare /dev/sdX is rejected unless
+# TBI_USB_ALLOW_UNSTABLE_DEVICE is set to true.
+TBI_USB_DEVICE: ""
+TBI_USB_ALLOW_UNSTABLE_DEVICE: false
+TBI_USB_CONFIRM: false
+# Which profile's asset to write, and which format (iso writes the isohybrid
+# ISO directly; raw decompresses the .raw.xz through dd).
+TBI_USB_PROFILE: ""
+TBI_USB_SOURCE_FORMAT: "iso"
+
+# File / directory modes applied by the role.
+TBI_DIR_MODE: "0750"
+TBI_ASSET_MODE: "0644"
+TBI_SCHEMATIC_MODE: "0600"
+TBI_MANIFEST_MODE: "0644"

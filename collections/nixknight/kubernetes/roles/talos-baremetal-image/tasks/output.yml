@@ -1,0 +1,37 @@
+---
+# tasks file for talos-baremetal-image
+# Write the build manifest (one entry per profile: schematic id, every asset
+# path + recorded sha256 + size, and the matching metal-installer image ref)
+# and print copy-pasteable dd hints for each produced ISO. The manifest is
+# written on the same host as the assets so the recorded paths are accurate.
+
+- name: Compose Build Manifest
+  ansible.builtin.set_fact:
+    tbi_manifest:
+      talos_version: "{{ TBI_TALOS_VERSION }}"
+      backend: "{{ TBI_BUILD_BACKEND }}"
+      factory_api: "{{ TBI_FACTORY_API }}"
+      output_dir: "{{ TBI_OUTPUT_DIR }}"
+      generated_by: "nixknight.kubernetes.talos-baremetal-image"
+      profiles: "{{ tbi_manifest_profiles }}"
+
+- name: Write Build Manifest
+  ansible.builtin.copy:
+    content: "{{ tbi_manifest | to_nice_json(indent=2) }}\n"
+    dest: "{{ TBI_OUTPUT_DIR }}/manifest.json"
+    mode: "{{ TBI_MANIFEST_MODE }}"
+  when: TBI_CREATE_MANIFEST | bool
+
+- name: Print USB Write Hints per ISO
+  ansible.builtin.debug:
+    msg: >-
+      Profile '{{ item.0.name }}' ISO: {{ item.1.path }} (sha256
+      {{ item.1.sha256 }}). To write it to a USB stick, set TBI_USB_WRITE_ENABLE,
+      TBI_USB_CONFIRM, TBI_USB_PROFILE='{{ item.0.name }}', and TBI_USB_DEVICE to
+      a /dev/disk/by-id/... path, then re-run. Manual equivalent (verify the
+      target device first): dd if={{ item.1.path }} of=<USB_BY_ID_DEVICE> bs=4M
+      conv=fsync oflag=direct status=progress
+  loop: "{{ tbi_manifest_profiles | subelements('assets') }}"
+  loop_control:
+    label: "{{ item.1.name }}"
+  when: item.1.name is match('.*\.iso$')

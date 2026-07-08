@@ -1,0 +1,25 @@
+---
+dependencies: []
+galaxy_info:
+  author: Saad Ali
+  description: Build Talos Linux bare-metal boot media (ISO / PXE) per node class.
+  license: MIT
+  platforms:
+    - name: Debian
+      versions:
+        - bookworm
+    - name: Ubuntu
+      versions:
+        - jammy
+        - noble
+  galaxy_tags:
+    - talos
+    - kubernetes
+    - baremetal
+    - talos_linux
+    - image
+    - factory
+    - imager
+    - pxe
+    - iso
+    - k8s

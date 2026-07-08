@@ -1,0 +1,51 @@
+---
+# tasks file for talos-baremetal-image
+# Backend-specific environment checks plus output-dir creation. Read-only checks
+# set changed_when: false; the imager docker check is skipped in check mode.
+
+- name: Check Talos Image Factory Reachability
+  ansible.builtin.uri:
+    url: "{{ TBI_FACTORY_API }}"
+    method: GET
+    status_code:
+      - 200
+      - 301
+      - 302
+      - 308
+    return_content: false
+    timeout: 30
+  register: tbi_factory_reachable
+  changed_when: false
+  retries: "{{ TBI_API_RETRIES }}"
+  delay: "{{ TBI_API_DELAY }}"
+  until: tbi_factory_reachable is succeeded
+  when: TBI_BUILD_BACKEND == 'factory'
+
+- name: Check Docker Is Available for the Imager Backend
+  ansible.builtin.command:
+    argv:
+      - "docker"
+      - "--version"
+  register: tbi_docker_version
+  changed_when: false
+  when:
+    - TBI_BUILD_BACKEND == 'imager'
+    - not ansible_check_mode
+
+- name: Assert Docker Is Usable for the Imager Backend
+  ansible.builtin.assert:
+    that:
+      - tbi_docker_version.rc == 0
+    fail_msg: >-
+      The imager backend requires a working Docker CLI on this host, but
+      'docker --version' did not succeed.
+    quiet: true
+  when:
+    - TBI_BUILD_BACKEND == 'imager'
+    - not ansible_check_mode
+
+- name: Create Output Directory
+  ansible.builtin.file:
+    path: "{{ TBI_OUTPUT_DIR }}"
+    state: directory
+    mode: "{{ TBI_DIR_MODE }}"
