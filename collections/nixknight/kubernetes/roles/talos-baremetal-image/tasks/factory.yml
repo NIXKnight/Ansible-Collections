@@ -1,0 +1,41 @@
+---
+# tasks file for talos-baremetal-image
+# Download the per-format Factory assets into the profile output directory.
+# PXE = the Factory-hosted iPXE script (it references Factory kernel/initramfs
+# URLs); kernel/initramfs filenames are never hardcoded here.
+
+- name: Download Metal ISO
+  ansible.builtin.get_url:
+    url: "{{ tbi_factory_iso_url }}"
+    dest: "{{ tbi_p_outdir }}/{{ tbi_iso_basename }}"
+    mode: "{{ TBI_ASSET_MODE }}"
+    timeout: "{{ TBI_DOWNLOAD_TIMEOUT }}"
+  register: tbi_get_iso
+  retries: "{{ TBI_API_RETRIES }}"
+  delay: "{{ TBI_API_DELAY }}"
+  until: tbi_get_iso is succeeded
+  when: "'iso' in tbi_p_formats"
+
+- name: Download Metal Raw Disk Image
+  ansible.builtin.get_url:
+    url: "{{ tbi_factory_raw_url }}"
+    dest: "{{ tbi_p_outdir }}/{{ tbi_raw_basename }}"
+    mode: "{{ TBI_ASSET_MODE }}"
+    timeout: "{{ TBI_DOWNLOAD_TIMEOUT }}"
+  register: tbi_get_raw
+  retries: "{{ TBI_API_RETRIES }}"
+  delay: "{{ TBI_API_DELAY }}"
+  until: tbi_get_raw is succeeded
+  when: "'raw' in tbi_p_formats"
+
+- name: Download Factory iPXE Boot Script
+  ansible.builtin.get_url:
+    url: "{{ tbi_factory_pxe_url }}"
+    dest: "{{ tbi_p_outdir }}/{{ tbi_factory_ipxe_basename }}"
+    mode: "{{ TBI_ASSET_MODE }}"
+    timeout: "{{ TBI_DOWNLOAD_TIMEOUT }}"
+  register: tbi_get_ipxe
+  retries: "{{ TBI_API_RETRIES }}"
+  delay: "{{ TBI_API_DELAY }}"
+  until: tbi_get_ipxe is succeeded
+  when: "'pxe' in tbi_p_formats"

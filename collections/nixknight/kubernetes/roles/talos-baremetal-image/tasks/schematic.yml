@@ -1,0 +1,49 @@
+---
+# tasks file for talos-baremetal-image
+# Render the per-profile schematic and POST it to the Factory /schematics
+# endpoint. Factory validates the schematic (including extension names) and
+# returns its id; a non-200 response is treated as fatal extension/schematic
+# validation failure. The rendered schematic is kept (mode 0600) for audit.
+
+- name: Render Factory Schematic
+  ansible.builtin.template:
+    src: "schematic.yaml.j2"
+    dest: "{{ tbi_p_outdir }}/{{ tbi_schematic_basename }}"
+    mode: "{{ TBI_SCHEMATIC_MODE }}"
+
+- name: Submit Schematic to the Factory
+  ansible.builtin.uri:
+    url: "{{ tbi_factory_schematics_url }}"
+    method: POST
+    src: "{{ tbi_p_outdir }}/{{ tbi_schematic_basename }}"
+    remote_src: true
+    headers:
+      Content-Type: "application/x-yaml"
+    body_format: raw
+    return_content: true
+    status_code: [200, 201]
+    timeout: 60
+  register: tbi_schematic_response
+  changed_when: false
+  retries: "{{ TBI_API_RETRIES }}"
+  delay: "{{ TBI_API_DELAY }}"
+  until: tbi_schematic_response is succeeded
+
+- name: Assert the Factory Accepted the Schematic
+  ansible.builtin.assert:
+    that:
+      - tbi_schematic_response.status in [200, 201]
+      - tbi_schematic_response.json is defined
+      - tbi_schematic_response.json.id is defined
+      - tbi_schematic_response.json.id | length > 0
+    fail_msg: >-
+      The Talos Image Factory rejected the schematic for profile
+      '{{ tbi_p_name }}'. This usually means an unknown or invalid system
+      extension or schematic field. Factory status:
+      {{ tbi_schematic_response.status | default('unknown') }}.
+    quiet: true
+  when: TBI_VALIDATE_EXTENSIONS | bool
+
+- name: Set Resolved Schematic ID
+  ansible.builtin.set_fact:
+    tbi_p_schematic_id: "{{ tbi_schematic_response.json.id }}"

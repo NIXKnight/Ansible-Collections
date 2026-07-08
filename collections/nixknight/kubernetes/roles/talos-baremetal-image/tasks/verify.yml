@@ -1,0 +1,81 @@
+---
+# tasks file for talos-baremetal-image
+# Record every produced asset (path, size, sha256) for the manifest. The sha256
+# is RECORDED, not an authenticity proof. Real verification (assert-match) runs
+# only when TBI_VERIFY_CHECKSUM is true AND the profile supplies an expected
+# hash for that asset basename via `expected_checksums`.
+
+- name: Find Produced Assets
+  ansible.builtin.find:
+    paths: "{{ tbi_p_outdir }}"
+    file_type: file
+    recurse: false
+    excludes:
+      - "{{ tbi_schematic_basename }}"
+    get_checksum: true
+    checksum_algorithm: sha256
+  register: tbi_p_found
+
+- name: Assert at Least One Asset Was Produced
+  ansible.builtin.assert:
+    that:
+      - tbi_p_found.files | length > 0
+    fail_msg: >-
+      No boot assets were produced for profile '{{ tbi_p_name }}' in
+      {{ tbi_p_outdir }}. Expected one or more of the requested formats
+      ({{ tbi_p_formats | join(', ') }}).
+    quiet: true
+  when: not ansible_check_mode
+
+- name: Verify Expected Checksums When Supplied
+  ansible.builtin.assert:
+    that:
+      - item.checksum == tbi_profile.expected_checksums[item.path | basename]
+    fail_msg: >-
+      Checksum mismatch for {{ item.path }} in profile '{{ tbi_p_name }}':
+      recorded {{ item.checksum }} does not match the expected hash supplied in
+      expected_checksums.
+    quiet: true
+  loop: "{{ tbi_p_found.files }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+  when:
+    - TBI_VERIFY_CHECKSUM | bool
+    - tbi_profile.expected_checksums is defined
+    - (item.path | basename) in (tbi_profile.expected_checksums | default({}))
+
+- name: Initialize Per-Profile Asset List
+  ansible.builtin.set_fact:
+    tbi_p_assets: []
+
+- name: Collect Asset Records
+  ansible.builtin.set_fact:
+    tbi_p_assets: >-
+      {{
+        tbi_p_assets + [{
+          'path': item.path,
+          'name': item.path | basename,
+          'size': item.size,
+          'sha256': item.checksum
+        }]
+      }}
+  loop: "{{ tbi_p_found.files }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+
+- name: Append Profile Entry to the Manifest Accumulator
+  ansible.builtin.set_fact:
+    tbi_manifest_profiles: >-
+      {{
+        tbi_manifest_profiles + [{
+          'name': tbi_p_name,
+          'role': tbi_profile.role | default(''),
+          'arch': tbi_p_arch,
+          'talos_version': tbi_p_version,
+          'backend': TBI_BUILD_BACKEND,
+          'schematic_id': tbi_p_schematic_id,
+          'installer_image': (tbi_installer_image if (tbi_p_schematic_id | length > 0) else ''),
+          'output_dir': tbi_p_outdir,
+          'assets': tbi_p_assets
+        }]
+      }}

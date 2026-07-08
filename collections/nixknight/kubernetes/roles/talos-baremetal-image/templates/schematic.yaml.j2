@@ -1,0 +1,30 @@
+---
+# schematic template file for talos-baremetal-image
+# Rendered per profile and POSTed to the Talos Image Factory /schematics
+# endpoint (Content-Type: application/x-yaml). Factory returns a schematic id.
+customization:
+{% if tbi_profile.extensions | default([]) | length > 0 %}
+  systemExtensions:
+    officialExtensions:
+{% for ext in tbi_profile.extensions %}
+      - {{ ext }}
+{% endfor %}
+{% endif %}
+{% if tbi_profile.kernel_args | default([]) | length > 0 %}
+  extraKernelArgs:
+{% for arg in tbi_profile.kernel_args %}
+    - {{ arg }}
+{% endfor %}
+{% endif %}
+{% if tbi_profile.meta | default([]) | length > 0 %}
+  meta:
+{% for m in tbi_profile.meta %}
+    - key: {{ m.key }}
+      value: {{ m.value }}
+{% endfor %}
+{% endif %}
+{% if tbi_profile.overlay is defined %}
+  overlay:
+    name: {{ tbi_profile.overlay.name }}
+    image: {{ tbi_profile.overlay.image }}
+{% endif %}

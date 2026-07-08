@@ -1,0 +1,44 @@
+---
+# vars file for talos-baremetal-image
+#
+# Lowercase internal constants. URL and filename templates live here so the
+# task files stay readable. These reference per-profile facts (tbi_p_*) that are
+# set in build_profile.yml; Ansible templates them lazily on access, so they are
+# only resolved inside the per-profile loop where those facts exist.
+
+# Asset basenames (factory + imager share the ISO / raw naming).
+tbi_iso_basename: "metal-{{ tbi_p_arch }}.iso"
+tbi_raw_basename: "metal-{{ tbi_p_arch }}.raw.xz"
+
+# Factory PXE = the Factory-hosted iPXE script (it references Factory kernel /
+# initramfs URLs); the role does not guess kernel/initramfs filenames.
+tbi_factory_ipxe_basename: "ipxe-{{ tbi_p_arch }}.ipxe"
+
+# Imager PXE = locally produced kernel + initramfs + a role-generated iPXE file.
+tbi_imager_kernel_basename: "kernel-{{ tbi_p_arch }}"
+tbi_imager_initramfs_basename: "initramfs-{{ tbi_p_arch }}.xz"
+tbi_imager_ipxe_basename: "boot-{{ tbi_p_arch }}.ipxe"
+
+# Rendered Factory schematic kept per profile for auditability (mode 0600).
+tbi_schematic_basename: "schematic-{{ tbi_p_arch }}.yaml"
+
+# Factory URLs.
+tbi_factory_schematics_url: "{{ TBI_FACTORY_API }}/schematics"
+tbi_factory_iso_url: "{{ TBI_FACTORY_API }}/image/{{ tbi_p_schematic_id }}/{{ tbi_p_version }}/metal-{{ tbi_p_arch }}.iso"
+tbi_factory_raw_url: "{{ TBI_FACTORY_API }}/image/{{ tbi_p_schematic_id }}/{{ tbi_p_version }}/metal-{{ tbi_p_arch }}.raw.xz"
+tbi_factory_pxe_url: "{{ TBI_FACTORY_API }}/pxe/{{ tbi_p_schematic_id }}/{{ tbi_p_version }}/metal-{{ tbi_p_arch }}"
+
+# Matching first-boot installer image (boot media only boots the node; the
+# install/upgrade uses this image). Recorded per profile in the manifest.
+tbi_installer_image: "factory.talos.dev/metal-installer/{{ tbi_p_schematic_id }}:{{ tbi_p_version }}"
+
+# Validation helpers.
+tbi_valid_arches:
+  - "amd64"
+  - "arm64"
+tbi_valid_formats:
+  - "iso"
+  - "pxe"
+  - "raw"
+# Pinned digest ref pattern for imager extension_images (registry/path@sha256:<64 hex>).
+tbi_digest_ref_regex: "@sha256:[0-9a-f]{64}$"
