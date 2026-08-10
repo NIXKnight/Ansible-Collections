@@ -1,5 +1,6 @@
 Types: deb
 URIs: {{ item.URL }}
 Suites: {{ item.SUITES }}
-Components: {{ item.COMPONENTS }}
+{% if item.COMPONENTS is defined and item.COMPONENTS | length > 0 %}Components: {{ item.COMPONENTS }}
+{% endif %}
 Signed-By: {{ item.APT_KEY_LOCAL_PATH }}

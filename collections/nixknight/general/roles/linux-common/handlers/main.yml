@@ -1,0 +1,4 @@
+---
+# handlers file for Ansible-LinuxCommon
+- name: Update initramfs
+  ansible.builtin.command: update-initramfs -u

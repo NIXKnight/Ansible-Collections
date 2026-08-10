@@ -19,7 +19,7 @@ Install individual collections from GitHub:
 ansible-galaxy collection install git+https://github.com/NIXKnight/Ansible-Collections.git#/collections/nixknight/docker,docker-0.1.5
 
 # General collection
-ansible-galaxy collection install git+https://github.com/NIXKnight/Ansible-Collections.git#/collections/nixknight/general,general-0.1.0
+ansible-galaxy collection install git+https://github.com/NIXKnight/Ansible-Collections.git#/collections/nixknight/general,general-0.1.1
 
 # OpenTofu collection
 ansible-galaxy collection install git+https://github.com/NIXKnight/Ansible-Collections.git#/collections/nixknight/opentofu,opentofu-0.1.2

@@ -49,6 +49,17 @@
     purge: yes
   when: LC_REMOVE_EXIM
 
+- name: Copy/Update Modprobe Configuration File(s)
+  ansible.builtin.copy:
+    content: "{{ item.CONTENT }}\n"
+    dest: "/etc/modprobe.d/{{ item.NAME }}.conf"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+  with_items: "{{ LC_MODPROBE_CONFIGS }}"
+  notify: "Update initramfs"
+  when: LC_MODPROBE_CONFIGS is defined and LC_MODPROBE_CONFIGS | length > 0
+
 - name: Install Packages
   ansible.builtin.apt:
     pkg: "{{ lc_basic_packages + LC_EXTRA_PACKAGES + ([ 'sudo' ] if LC_SETUP_SUDO | bool else [])}}"
