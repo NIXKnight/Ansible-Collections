@@ -87,6 +87,9 @@
     group: "{{ DOCKER_COMPOSE_SERVICE_SYSTEMD_FILE_GROUP }}"
   register: create_update_systemd_service_file
 
+# A secret-bearing template item sets `no_log: true`; that also suppresses the
+# module diff so `--diff` never prints rendered secret content. Both default to
+# false, preserving existing behavior for every non-secret template item.
 - name: Render Service Template(s)
   ansible.builtin.template:
     src: "{{ item.src }}"
@@ -96,6 +99,8 @@
     group: "{{ item.group }}"
   with_items: "{{ DOCKER_COMPOSE_SERVICE_TEMPLATES }}"
   register: render_service_templates
+  no_log: "{{ item.no_log | default(false) }}"
+  diff: "{{ not (item.no_log | default(false)) }}"
   when:
     - DOCKER_COMPOSE_SERVICE_TEMPLATES is defined
     - DOCKER_COMPOSE_SERVICE_TEMPLATES | length > 0
