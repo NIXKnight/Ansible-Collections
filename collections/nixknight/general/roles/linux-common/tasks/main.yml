@@ -80,11 +80,21 @@
     append: yes
   when: LC_SETUP_SUDO
 
+# LC_ADDITIONAL_PATHS accepts two item shapes. A bare string is a path and keeps
+# the original behaviour (recursive, ownership and mode left to the system). A
+# mapping takes `path` plus optional `owner`, `group`, `mode` and `recurse`; each
+# omitted key falls back to the module default, so the two shapes can be mixed in
+# one list. Set `recurse: false` on a directory whose contents are owned by
+# another writer (log directories, spools) so their permissions are not rewritten
+# on every run.
 - name: Create Additional Directories
   ansible.builtin.file:
-    path: "{{ item }}"
+    path: "{{ item.path | default(item) }}"
     state: directory
-    recurse: true
+    recurse: "{{ item.recurse | default(true) | bool }}"
+    owner: "{{ item.owner | default(omit) }}"
+    group: "{{ item.group | default(omit) }}"
+    mode: "{{ item.mode | default(omit) }}"
   with_items: "{{ LC_ADDITIONAL_PATHS }}"
 
 - name: Render Misc Template File(s)
