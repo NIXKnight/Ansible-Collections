@@ -1,0 +1,35 @@
+[Unit]
+Description={{ PVA_SERVICE_DESCRIPTION }}
+{% if PVA_SERVICE_AFTER | length > 0 %}
+After={{ PVA_SERVICE_AFTER }}
+{% endif %}
+{% if PVA_SERVICE_WANTS | length > 0 %}
+Wants={{ PVA_SERVICE_WANTS }}
+{% endif %}
+{% if PVA_SERVICE_REQUIRES | length > 0 %}
+Requires={{ PVA_SERVICE_REQUIRES }}
+{% endif %}
+{% for line in PVA_SERVICE_EXTRA_UNIT_OPTIONS %}
+{{ line }}
+{% endfor %}
+
+[Service]
+Type={{ PVA_SERVICE_TYPE }}
+User={{ PVA_USER }}
+Group={{ PVA_GROUP }}
+WorkingDirectory={{ PVA_SERVICE_WORKING_DIR }}
+{% if PVA_ENVIRONMENT | length > 0 %}
+EnvironmentFile={{ PVA_ENV_FILE }}
+{% endif %}
+ExecStart={{ (PVA_SERVICE_COMMAND ~ ' ' ~ (PVA_SERVICE_ARGS | join(' '))) | trim }}
+Restart={{ PVA_SERVICE_RESTART }}
+RestartSec={{ PVA_SERVICE_RESTART_SEC }}
+TimeoutStopSec={{ PVA_SERVICE_TIMEOUT_STOP_SEC }}
+NoNewPrivileges={{ PVA_SERVICE_NO_NEW_PRIVILEGES | bool | ternary('yes', 'no') }}
+PrivateTmp={{ PVA_SERVICE_PRIVATE_TMP | bool | ternary('yes', 'no') }}
+{% for line in PVA_SERVICE_EXTRA_SERVICE_OPTIONS %}
+{{ line }}
+{% endfor %}
+
+[Install]
+WantedBy=multi-user.target

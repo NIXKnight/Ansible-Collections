@@ -1,0 +1,54 @@
+---
+# tasks file for python-venv-app
+# One PVA_PIP_STEPS entry (loop_var: pva_step). Packages install before the
+# step's requirements files so a step can seed a pinned wheel (a CUDA torch
+# build, say) that the requirements set would otherwise resolve from PyPI.
+
+- name: Compose Pip Arguments for Step
+  ansible.builtin.set_fact:
+    pva_step_pip_args: >-
+      {{
+        (
+          [pva_constraints_arg]
+          + (['--index-url ' ~ pva_step.index_url] if (pva_step.index_url | default('') | length > 0) else [])
+          + (['--extra-index-url ' ~ pva_step.extra_index_url] if (pva_step.extra_index_url | default('') | length > 0) else [])
+          + [pva_step.extra_args | default('')]
+        ) | select | join(' ')
+      }}
+
+- name: Install Package(s) for Step
+  ansible.builtin.pip:
+    name: "{{ pva_step.packages }}"
+    virtualenv: "{{ PVA_VENV_DIR }}"
+    virtualenv_command: "{{ PVA_PYTHON }} -m venv"
+    virtualenv_site_packages: "{{ PVA_VENV_SYSTEM_SITE_PACKAGES | bool }}"
+    extra_args: "{{ pva_step_pip_args | default(omit, true) }}"
+  become: true
+  become_user: "{{ PVA_USER }}"
+  register: pva_step_packages
+  when: pva_step.packages | default([]) | length > 0
+
+- name: Install Requirements File(s) for Step
+  ansible.builtin.pip:
+    requirements: "{{ item if item is match('^/') else PVA_SRC_DIR ~ '/' ~ item }}"
+    virtualenv: "{{ PVA_VENV_DIR }}"
+    virtualenv_command: "{{ PVA_PYTHON }} -m venv"
+    virtualenv_site_packages: "{{ PVA_VENV_SYSTEM_SITE_PACKAGES | bool }}"
+    extra_args: "{{ pva_step_pip_args | default(omit, true) }}"
+  become: true
+  become_user: "{{ PVA_USER }}"
+  with_items: "{{ pva_step.requirements | default([]) }}"
+  register: pva_step_requirements
+
+# Registers are overwritten on every include, so the change signal is folded into
+# one accumulator that the service-state computation reads after the loop ends.
+# The `| bool` keeps the accumulator a boolean on cores that hand set_fact a
+# stringified template result.
+- name: Record Step Change
+  ansible.builtin.set_fact:
+    pva_pip_steps_changed: >-
+      {{
+        (pva_pip_steps_changed | bool)
+        or (pva_step_packages is defined and pva_step_packages is changed)
+        or (pva_step_requirements is defined and pva_step_requirements is changed)
+      }}

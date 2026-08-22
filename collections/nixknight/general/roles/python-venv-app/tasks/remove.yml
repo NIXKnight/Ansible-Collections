@@ -1,0 +1,61 @@
+---
+# tasks file for python-venv-app
+
+# systemd_service fails on a unit it cannot find, so the stop/disable pair is
+# gated on the unit file rather than on ignore_errors.
+- name: Check if Systemd Unit File Exists
+  ansible.builtin.stat:
+    path: "{{ PVA_SERVICE_FILE }}"
+  register: pva_unit_file
+
+- name: Stop and Disable Service
+  ansible.builtin.systemd_service:
+    name: "{{ PVA_SERVICE_NAME }}"
+    state: "stopped"
+    enabled: false
+  when:
+    - PVA_MANAGE_SERVICE | bool
+    - pva_unit_file.stat.exists
+
+# Both are gated on PVA_MANAGE_SERVICE: with it false the role never wrote a
+# unit, and deleting a file it does not own is not its business.
+- name: Remove Systemd Unit File
+  ansible.builtin.file:
+    path: "{{ PVA_SERVICE_FILE }}"
+    state: absent
+  register: pva_unit_removed
+  when: PVA_MANAGE_SERVICE | bool
+
+# noqa no-handler: the role carries no handlers by design (see README), and a
+# reload is only meaningful when the unit file actually went away.
+- name: Reload Systemd
+  ansible.builtin.systemd_service: # noqa no-handler
+    daemon_reload: true
+  when: pva_unit_removed is changed
+
+- name: Remove Application Environment File
+  ansible.builtin.file:
+    path: "{{ PVA_ENV_FILE }}"
+    state: absent
+
+# Takes the checkout, the venv and the constraints file with it. Entries of
+# PVA_DIRECTORIES that live outside PVA_BASE_DIR are left alone on purpose: they
+# are where models, datasets and outputs are usually parked.
+- name: Remove Application Base Directory
+  ansible.builtin.file:
+    path: "{{ PVA_BASE_DIR }}"
+    state: absent
+
+- name: Remove Application User
+  ansible.builtin.user:
+    name: "{{ PVA_USER }}"
+    state: absent
+    remove: false
+    force: false
+  when: PVA_MANAGE_USER | bool
+
+- name: Remove Application Group
+  ansible.builtin.group:
+    name: "{{ PVA_GROUP }}"
+    state: absent
+  when: PVA_MANAGE_USER | bool

@@ -1,0 +1,16 @@
+---
+dependencies: []
+galaxy_info:
+  author: Saad Ali
+  description: Install and run any Python application from a git checkout or pip in its own virtualenv under systemd.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions:
+        - bookworm
+        - trixie
+  galaxy_tags:
+    - python
+    - systemd
+    - venv

@@ -1,0 +1,122 @@
+---
+# defaults file for python-venv-app
+
+# Application identity. PVA_NAME is the only required input: it seeds the user,
+# the group, the unit name and the layout, each of which can still be overridden
+# on its own.
+PVA_NAME: ""
+PVA_USER: "{{ PVA_NAME }}"
+PVA_GROUP: "{{ PVA_USER }}"
+# Supplementary groups only, appended -- membership granted out of band (e.g.
+# `render` added by a GPU driver package) is never revoked by the role.
+PVA_USER_GROUPS: []
+PVA_USER_SHELL: "/usr/sbin/nologin"
+PVA_MANAGE_USER: true
+
+# Layout. PVA_SRC_DIR holds the checkout (or a pip-only app's own files) and is
+# the unit's default WorkingDirectory. PVA_VENV_DIR is created by the first pip
+# task that runs, not by a separate step.
+PVA_BASE_DIR: "/opt/{{ PVA_NAME }}"
+PVA_SRC_DIR: "{{ PVA_BASE_DIR }}/app"
+PVA_VENV_DIR: "{{ PVA_BASE_DIR }}/venv"
+
+# Extra application-owned directories (models, cache, outputs). Items take
+# `path` plus optional `owner`, `group`, `mode`; a relative `path` resolves
+# against PVA_BASE_DIR. Directories outside PVA_BASE_DIR survive PVA_REMOVE.
+PVA_DIRECTORIES: []
+
+# Host packages required to build the venv. Consumers extend the list with their
+# own build/runtime dependencies (ffmpeg, libgl1, build-essential, acl).
+PVA_APT_PACKAGES:
+  - "git"
+  - "python3-venv"
+
+# Source checkout. An empty PVA_GIT_REPO means a pip-only application: no
+# checkout runs, but PVA_SRC_DIR is still created for PVA_FILES/PVA_TEMPLATES.
+PVA_GIT_REPO: ""
+PVA_GIT_VERSION: "HEAD"
+# Empty means a full clone. A depth makes the clone shallow, which cannot reach
+# an arbitrary pinned commit unless the depth covers it.
+PVA_GIT_DEPTH: ""
+PVA_GIT_FORCE: false
+
+# Additional checkouts inside the tree (plugins, custom nodes). Items take
+# `repo` and `dest` plus optional `version`, `depth`; a relative `dest` resolves
+# against PVA_SRC_DIR. Their requirements are deliberately NOT auto-installed --
+# list them in PVA_PIP_STEPS so install order stays explicit.
+PVA_EXTRA_REPOS: []
+
+# Interpreter used to build the venv (`<PVA_PYTHON> -m venv`). Point it at a
+# specific minor (e.g. /usr/bin/python3.12) when the system default is wrong for
+# the application.
+PVA_PYTHON: "python3"
+PVA_VENV_SYSTEM_SITE_PACKAGES: false
+
+# Upgrades pip/setuptools/wheel inside the venv and, being the first pip task,
+# creates the venv. With this false AND PVA_PIP_STEPS empty no venv is created.
+PVA_PIP_UPGRADE_PIP: true
+
+# package -> full version specifier (operator included). Rendered to
+# <PVA_BASE_DIR>/constraints.txt and passed as `-c` to every pip invocation, so
+# a transitive dependency cannot silently replace a pinned build -- the usual
+# victim is a CUDA-flavoured torch wheel being downgraded to the PyPI one.
+PVA_PIP_CONSTRAINTS: {}
+  # Example
+  # torch: "==2.11.0+cu130"
+  # torchvision: "==0.26.0+cu130"
+
+# Ordered install sequence. Each item: {name, packages, requirements, index_url,
+# extra_index_url, extra_args}. Steps run in list order and, inside a step,
+# `packages` install before each `requirements` file. Requirements paths that
+# are relative resolve against PVA_SRC_DIR.
+PVA_PIP_STEPS: []
+  # Example
+  # - name: "torch"
+  #   packages: ["torch", "torchvision"]
+  #   index_url: "https://download.pytorch.org/whl/cu130"
+  # - name: "application"
+  #   requirements: ["requirements.txt"]
+
+# Configuration rendered/copied into the tree. Item schema
+# {src, dest, owner, group, mode, no_log}; a relative `dest` resolves against
+# PVA_SRC_DIR. `no_log: true` on a secret-bearing item also suppresses the
+# module diff, so `--diff` cannot print the rendered content.
+PVA_TEMPLATES: []
+PVA_FILES: []
+
+# KEY=value pairs written to PVA_ENV_FILE and wired into the unit as
+# EnvironmentFile. Always rendered with no_log and a suppressed diff; the file is
+# removed when the map is empty.
+PVA_ENVIRONMENT: {}
+PVA_ENV_FILE: "{{ PVA_BASE_DIR }}/{{ PVA_NAME }}.env"
+
+# Service management. Set false for libraries, CLI tools and one-shot apps: the
+# venv is built and no unit is written.
+PVA_MANAGE_SERVICE: true
+PVA_SERVICE_NAME: "{{ PVA_NAME }}"
+PVA_SERVICE_FILE: "/etc/systemd/system/{{ PVA_SERVICE_NAME }}.service"
+PVA_SERVICE_DESCRIPTION: "{{ PVA_NAME }}"
+PVA_SERVICE_AFTER: "network-online.target"
+PVA_SERVICE_WANTS: "network-online.target"
+PVA_SERVICE_REQUIRES: ""
+PVA_SERVICE_COMMAND: "{{ PVA_VENV_DIR }}/bin/python -u main.py"
+PVA_SERVICE_ARGS: []
+PVA_SERVICE_WORKING_DIR: "{{ PVA_SRC_DIR }}"
+PVA_SERVICE_TYPE: "simple"
+PVA_SERVICE_RESTART: "on-failure"
+PVA_SERVICE_RESTART_SEC: 5
+PVA_SERVICE_TIMEOUT_STOP_SEC: 60
+PVA_SERVICE_NO_NEW_PRIVILEGES: true
+PVA_SERVICE_PRIVATE_TMP: true
+# Raw `Key=Value` lines appended verbatim to the matching unit section. Escape
+# hatch for anything the role does not model (MemoryMax, Nice, Environment,
+# SupplementaryGroups, DeviceAllow, ...).
+PVA_SERVICE_EXTRA_UNIT_OPTIONS: []
+PVA_SERVICE_EXTRA_SERVICE_OPTIONS: []
+PVA_SERVICE_ENABLED: true
+# Target state when nothing changed. "restarted" is never set here -- the role
+# computes it from the run's own change signals.
+PVA_SERVICE_STATE: "started"
+
+# Teardown switch: run tasks/remove.yml instead of the create/update path.
+PVA_REMOVE: false

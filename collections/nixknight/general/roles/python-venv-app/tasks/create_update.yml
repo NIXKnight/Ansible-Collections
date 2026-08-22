@@ -1,0 +1,233 @@
+---
+# tasks file for python-venv-app
+
+- name: Install Host Package(s)
+  ansible.builtin.apt:
+    name: "{{ PVA_APT_PACKAGES }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  when: PVA_APT_PACKAGES | length > 0
+
+- name: Create Application Group
+  ansible.builtin.group:
+    name: "{{ PVA_GROUP }}"
+    system: true
+    state: present
+  when: PVA_MANAGE_USER | bool
+
+# create_home is false: PVA_BASE_DIR is created below with explicit ownership and
+# /etc/skel content has no business in an application tree.
+- name: Create Application User
+  ansible.builtin.user:
+    name: "{{ PVA_USER }}"
+    group: "{{ PVA_GROUP }}"
+    groups: "{{ PVA_USER_GROUPS | default(omit, true) }}"
+    append: true
+    shell: "{{ PVA_USER_SHELL }}"
+    home: "{{ PVA_BASE_DIR }}"
+    create_home: false
+    system: true
+    state: present
+  when: PVA_MANAGE_USER | bool
+
+# Both are owned by the application user: the checkout, the venv and every
+# runtime artefact below them are written by the service itself.
+- name: Create Application Directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ PVA_USER }}"
+    group: "{{ PVA_GROUP }}"
+    mode: "0755"
+  with_items:
+    - "{{ PVA_BASE_DIR }}"
+    - "{{ PVA_SRC_DIR }}"
+
+- name: Create Additional Application Directories
+  ansible.builtin.file:
+    path: "{{ item.path if item.path is match('^/') else PVA_BASE_DIR ~ '/' ~ item.path }}"
+    state: directory
+    owner: "{{ item.owner | default(PVA_USER) }}"
+    group: "{{ item.group | default(PVA_GROUP) }}"
+    mode: "{{ item.mode | default('0755') }}"
+  with_items: "{{ PVA_DIRECTORIES }}"
+
+# Checkouts run as the application user so the tree stays writable by the service
+# (in-place plugin installs, generated caches) without a later chown sweep.
+- name: Clone/Update Application Repository
+  ansible.builtin.git:
+    repo: "{{ PVA_GIT_REPO }}"
+    dest: "{{ PVA_SRC_DIR }}"
+    version: "{{ PVA_GIT_VERSION }}"
+    depth: "{{ PVA_GIT_DEPTH | default(omit, true) }}"
+    force: "{{ PVA_GIT_FORCE | bool }}"
+    update: true
+    accept_hostkey: false
+  become: true
+  become_user: "{{ PVA_USER }}"
+  register: pva_git_checkout
+  when: PVA_GIT_REPO | length > 0
+
+- name: Clone/Update Extra Repositories
+  ansible.builtin.git:
+    repo: "{{ item.repo }}"
+    dest: "{{ item.dest if item.dest is match('^/') else PVA_SRC_DIR ~ '/' ~ item.dest }}"
+    version: "{{ item.version | default('HEAD') }}"
+    depth: "{{ item.depth | default(omit, true) }}"
+    force: "{{ PVA_GIT_FORCE | bool }}"
+    update: true
+    accept_hostkey: false
+  become: true
+  become_user: "{{ PVA_USER }}"
+  with_items: "{{ PVA_EXTRA_REPOS }}"
+  register: pva_extra_repos
+
+- name: Initialize Pip Facts
+  ansible.builtin.set_fact:
+    pva_constraints_file: "{{ PVA_BASE_DIR }}/constraints.txt"
+    pva_pip_steps_changed: false
+
+- name: Render Pip Constraints File
+  ansible.builtin.template:
+    src: "templates/constraints.txt.j2"
+    dest: "{{ pva_constraints_file }}"
+    owner: "{{ PVA_USER }}"
+    group: "{{ PVA_GROUP }}"
+    mode: "0644"
+  register: pva_constraints
+  when: PVA_PIP_CONSTRAINTS | length > 0
+
+# A file left behind after the map is emptied would still read as authoritative
+# while no pip invocation references it any more.
+- name: Remove Pip Constraints File
+  ansible.builtin.file:
+    path: "{{ pva_constraints_file }}"
+    state: absent
+  register: pva_constraints_removed
+  when: PVA_PIP_CONSTRAINTS | length == 0
+
+- name: Compose Global Pip Constraint Argument
+  ansible.builtin.set_fact:
+    pva_constraints_arg: "{{ ('-c ' ~ pva_constraints_file) if PVA_PIP_CONSTRAINTS | length > 0 else '' }}"
+
+# First pip task of the run, so this is also what materialises the venv (the pip
+# module builds it with virtualenv_command when the directory is missing).
+# Constraints apply here too: pinning pip or setuptools must not be bypassed by
+# the toolchain upgrade itself.
+- name: Upgrade Pip Toolchain in Virtualenv
+  ansible.builtin.pip: # noqa package-latest
+    name:
+      - "pip"
+      - "setuptools"
+      - "wheel"
+    state: latest
+    virtualenv: "{{ PVA_VENV_DIR }}"
+    virtualenv_command: "{{ PVA_PYTHON }} -m venv"
+    virtualenv_site_packages: "{{ PVA_VENV_SYSTEM_SITE_PACKAGES | bool }}"
+    extra_args: "{{ pva_constraints_arg | default(omit, true) }}"
+  become: true
+  become_user: "{{ PVA_USER }}"
+  register: pva_pip_upgrade
+  when: PVA_PIP_UPGRADE_PIP | bool
+
+- name: Run Pip Install Step(s)
+  ansible.builtin.include_tasks:
+    file: pip_step.yml
+  loop: "{{ PVA_PIP_STEPS }}"
+  loop_control:
+    loop_var: pva_step
+    label: "{{ pva_step.name | default(pva_step) }}"
+
+# A secret-bearing item sets `no_log: true`; that also suppresses the module diff
+# so `--diff` never prints rendered secret content. Both default to false.
+- name: Render Application Template(s)
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest if item.dest is match('^/') else PVA_SRC_DIR ~ '/' ~ item.dest }}"
+    owner: "{{ item.owner | default(PVA_USER) }}"
+    group: "{{ item.group | default(PVA_GROUP) }}"
+    mode: "{{ item.mode | default('0644') }}"
+  with_items: "{{ PVA_TEMPLATES }}"
+  register: pva_templates
+  no_log: "{{ item.no_log | default(false) }}"
+  diff: "{{ not (item.no_log | default(false)) }}"
+
+- name: Copy/Update Application File(s)
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest if item.dest is match('^/') else PVA_SRC_DIR ~ '/' ~ item.dest }}"
+    owner: "{{ item.owner | default(PVA_USER) }}"
+    group: "{{ item.group | default(PVA_GROUP) }}"
+    mode: "{{ item.mode | default('0644') }}"
+  with_items: "{{ PVA_FILES }}"
+  register: pva_files
+  no_log: "{{ item.no_log | default(false) }}"
+  diff: "{{ not (item.no_log | default(false)) }}"
+
+# PVA_ENVIRONMENT is the secret channel of this role: rendered 0600 under no_log
+# with the diff suppressed, so neither task output nor `--diff` can echo a value.
+- name: Render Application Environment File
+  ansible.builtin.template:
+    src: "templates/env.j2"
+    dest: "{{ PVA_ENV_FILE }}"
+    owner: "{{ PVA_USER }}"
+    group: "{{ PVA_GROUP }}"
+    mode: "0600"
+  register: pva_env
+  no_log: true
+  diff: false
+  when: PVA_ENVIRONMENT | length > 0
+
+- name: Remove Application Environment File
+  ansible.builtin.file:
+    path: "{{ PVA_ENV_FILE }}"
+    state: absent
+  register: pva_env_removed
+  when: PVA_ENVIRONMENT | length == 0
+
+- name: Create/Update Systemd Unit File
+  ansible.builtin.template:
+    src: "templates/etc/systemd/system/python-venv-app.service.j2"
+    dest: "{{ PVA_SERVICE_FILE }}"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+  register: pva_unit
+  when: PVA_MANAGE_SERVICE | bool
+
+# No handler: this role is applied several times in one play with different
+# parameters, and a handler would fire at play end with the last application's
+# variables. The restart decision is therefore computed inline, per application,
+# from this run's own change signals.
+- name: Set Service State
+  ansible.builtin.set_fact:
+    pva_service_state: >-
+      {{
+        'restarted' if (
+          PVA_SERVICE_STATE == 'started' and
+          (
+            (pva_git_checkout is defined and pva_git_checkout is changed) or
+            (pva_extra_repos is defined and pva_extra_repos is changed) or
+            (pva_pip_upgrade is defined and pva_pip_upgrade is changed) or
+            (pva_constraints is defined and pva_constraints is changed) or
+            (pva_constraints_removed is defined and pva_constraints_removed is changed) or
+            (pva_pip_steps_changed | bool) or
+            (pva_templates is defined and pva_templates is changed) or
+            (pva_files is defined and pva_files is changed) or
+            (pva_env is defined and pva_env is changed) or
+            (pva_env_removed is defined and pva_env_removed is changed) or
+            (pva_unit is defined and pva_unit is changed)
+          )
+        )
+        else PVA_SERVICE_STATE
+      }}
+  when: PVA_MANAGE_SERVICE | bool
+
+- name: Manage Systemd Service
+  ansible.builtin.systemd_service:
+    name: "{{ PVA_SERVICE_NAME }}"
+    state: "{{ pva_service_state }}"
+    enabled: "{{ PVA_SERVICE_ENABLED | bool }}"
+    daemon_reload: true
+  when: PVA_MANAGE_SERVICE | bool

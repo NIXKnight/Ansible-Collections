@@ -1,0 +1,26 @@
+---
+# tasks file for python-venv-app
+
+- name: Validate Role Inputs
+  ansible.builtin.assert:
+    that:
+      # PVA_NAME becomes a system user name and a systemd unit name, so it is
+      # held to the stricter of the two grammars.
+      - PVA_NAME is string
+      - PVA_NAME | length > 0
+      - PVA_NAME is match('^[a-z0-9][a-z0-9_.-]*$')
+    fail_msg: >-
+      PVA_NAME is required and must be a non-empty string matching
+      ^[a-z0-9][a-z0-9_.-]*$ -- it is used as the system user, group and systemd
+      unit name. Got: "{{ PVA_NAME | default('') }}".
+    quiet: true
+
+- name: Create/Update Application
+  ansible.builtin.include_tasks:
+    file: create_update.yml
+  when: not PVA_REMOVE | bool
+
+- name: Remove Application
+  ansible.builtin.include_tasks:
+    file: remove.yml
+  when: PVA_REMOVE | bool
