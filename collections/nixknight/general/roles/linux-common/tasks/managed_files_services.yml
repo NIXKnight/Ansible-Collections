@@ -1,0 +1,56 @@
+---
+# Narrow, fact-free entry: directories -> copies -> validated templates ->
+# service state/reload -> enablement. A failed state action prevents enablement.
+# Skip ALL systemd actions in check mode: new units do not exist on first install.
+# LC_ADDITIONAL_PATHS accepts two item shapes. A bare string is a path and keeps
+# the original behaviour (recursive, ownership and mode left to the system). A
+# mapping takes `path` plus optional `owner`, `group`, `mode` and `recurse`; each
+# omitted key falls back to the module default, so the two shapes can be mixed in
+# one list. Set `recurse: false` on a directory whose contents are owned by
+# another writer (log directories, spools) so their permissions are not rewritten
+# on every run.
+- name: Create Additional Directories
+  ansible.builtin.file:
+    path: "{{ item.path | default(item) }}"
+    state: directory
+    recurse: "{{ item.recurse | default(true) | bool }}"
+    owner: "{{ item.owner | default(omit) }}"
+    group: "{{ item.group | default(omit) }}"
+    mode: "{{ item.mode | default(omit) }}"
+  with_items: "{{ LC_ADDITIONAL_PATHS }}"
+
+- name: Copy/Update Misc File(s)
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "{{ item.mode }}"
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+  with_items: "{{ LC_MISC_FILES }}"
+  when: LC_MISC_FILES is defined and LC_MISC_FILES | length > 0
+
+- name: Render Misc Template File(s)
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "{{ item.mode }}"
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    validate: "{{ item.validate | default(omit) }}"
+  with_items: "{{ LC_MISC_TEMPLATES }}"
+  when: LC_MISC_TEMPLATES is defined and LC_MISC_TEMPLATES | length > 0
+
+- name: Perform Systemd Service(s) Start/Restart Actions
+  ansible.builtin.systemd_service:
+    name: "{{ item.service_name }}"
+    state: "{{ item.state }}"
+    daemon_reload: "{{ item.daemon_reload | bool }}"
+  with_items: "{{ LC_SYSTEMD_SERVICES_ACTIONS }}"
+  when: not ansible_check_mode
+
+- name: Enable Certain Systemd Service(s)
+  ansible.builtin.systemd_service:
+    name: "{{ item.service_name }}"
+    enabled: "{{ item.enabled | bool }}"
+  with_items: "{{ LC_SYSTEMD_SERVICES_ACTIONS }}"
+  when: not ansible_check_mode

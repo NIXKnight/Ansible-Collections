@@ -158,3 +158,66 @@ This playbook is licensed under MIT License (See the LICENSE file).
 ## **Author**
 
 [Saad Ali](https://github.com/nixknight)
+
+## Narrow managed files and services entry
+
+`tasks/managed_files_services.yml` is fact-free and generic. Select it dynamically
+without running `main` (which still unconditionally performs an apt dist upgrade):
+
+```yaml
+- name: Manage only application files and units
+  hosts: application_hosts
+  gather_facts: false
+  collections:
+    - nixknight.general
+  tasks:
+    - name: Apply managed files and services
+      ansible.builtin.include_role:
+        name: linux-common
+        tasks_from: managed_files_services
+        apply:
+          tags: [application-files]
+      tags: [application-files]
+```
+
+Use the short hyphenated role name with `collections`; FQ hyphenated role calls
+are rejected by Ansible's parser. Dynamic inclusion also lets ordinary consumers
+of older collection versions parse without requiring this new entry. Tagged
+inclusion must apply the tag to inner tasks, not just the include itself.
+
+Interfaces and execution order:
+
+1. `LC_ADDITIONAL_PATHS`: strings retain recursive directory creation, with
+   ownership/mode omitted. Mappings accept required `path` and optional `owner`,
+   `group`, `mode`, `recurse` (default true). Existing semantics are unchanged.
+2. `LC_MISC_FILES`: copy items require `src`, `dest`, `mode`, `owner`, `group`.
+3. `LC_MISC_TEMPLATES`: the same required fields; optional `validate` is passed
+   to `ansible.builtin.template`, omitted when absent. Copies precede templates,
+   permitting an installed executable to validate a later rendered config.
+4. `LC_SYSTEMD_SERVICES_ACTIONS`: required `service_name`, `state`,
+   `daemon_reload`, `enabled`. All state/reload actions finish successfully
+   before the separate enablement loop. Failure aborts before enablement; prior
+   changes and already-enabled units are not rolled back.
+
+All four lists default empty. No hostname, apt/repository, sudo, MOTD, sysctl or
+reboot tasks run through this entry. `main` includes it in the same position as
+the former blocks, retaining its other tasks/guards. The deliberate differences
+are copy-before-template ordering, optional template validation, and skipping
+**all** systemd actions in check mode (first-install units do not exist yet).
+Check mode only previews files: template validation is not a first-install
+runtime guarantee and no service/hardware outcome is predicted. Choose only
+explicitly authorized units; `state: restarted` always reports Ansible changes
+regardless of an idempotent application's actual work. Secrets and inventory
+isolation remain the caller's responsibility, not a property of task tags.
+
+Controller-only regression tests (no host connections, root writes or services):
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python tests/test_managed_files_services.py -v
+```
+
+Run from this role directory with the existing Ansible/PyYAML toolchain. Six
+regressions cover defaults, string/mapping compatibility, required fields,
+copy/validate order, first-install check mode, failures before enablement, and
+ordinary main's upgrade/remaining guards. Disposable copies replace all host
+actions with connection-free mock plugins. No live integration is claimed.
